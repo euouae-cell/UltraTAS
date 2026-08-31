@@ -1,77 +1,31 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <LangVersion>latest</LangVersion>
-    
-  </PropertyGroup>
-
-  <PropertyGroup>
     <TargetFramework>net6.0-windows</TargetFramework>
-	  <!--netstandard2.0-->
-	  <UseWindowsForms>true</UseWindowsForms>
+    <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-
-  </PropertyGroup>
-  
-  <PropertyGroup>
     <PublicizeAll>true</PublicizeAll>
   </PropertyGroup>
-
   <ItemGroup>
-    <PackageReference Include="BepInEx.Analyzers" Version="1.0.8">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
     <PackageReference Include="Krafs.Publicizer" Version="2.2.1">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
   </ItemGroup>
-
   <ItemGroup>
-    <Reference Include="Assembly-CSharp">
-      <HintPath>..\..\..\ultrakill+bepinex\ULTRAKILL_Data\Managed\Assembly-CSharp.dll</HintPath>
-    </Reference>
-    <Reference Include="BepInEx">
-      <HintPath>.\lib\BepInEx.dll</HintPath>
-    </Reference>
-    <Reference Include="Configgy">
-      <HintPath>.\lib\Configgy.dll</HintPath>
-    </Reference>
-    <Reference Include="Unity.InputSystem">
-      <HintPath>.\lib\Unity.InputSystem.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine">
-      <HintPath>.\lib\UnityEngine.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.CoreModule">
-      <HintPath>.\UltraTAS\lib\UnityEngine.CoreModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.InputLegacyModule">
-      <HintPath>.\UltraTAS\lib\UnityEngine.InputLegacyModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.InputModule">
-      <HintPath>.\UltraTAS\lib\UnityEngine.InputModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.TextRenderingModule">
-      <HintPath>.\UltraTAS\lib\UnityEngine.TextRenderingModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.UI">
-      <HintPath>.\UltraTAS\lib\UnityEngine.UI.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.UIElementsModule">
-      <HintPath>.\UltraTAS\lib\UnityEngine.UIElementsModule.dll</HintPath>
-    </Reference>
-    <Reference Include="UnityEngine.UIModule">
-      <HintPath>.\UltraTAS\lib\UnityEngine.UIModule.dll</HintPath>
-    </Reference>
-    <Reference Include="WindowsInput">
-      <HintPath>..\WindowsInput.dll</HintPath>
-    </Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\Assembly-CSharp.dll</HintPath></Reference>
+    <Reference Include="BepInEx"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\BepInEx\core\BepInEx.dll</HintPath></Reference>
+    <Reference Include="Configgy"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\BepInEx\plugins\Hydraxous-Configgy\Configgy.dll</HintPath></Reference>
+    <Reference Include="Unity.InputSystem"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\Unity.InputSystem.dll</HintPath></Reference>
+    <Reference Include="UnityEngine"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.CoreModule.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.InputLegacyModule"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.InputModule"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.InputModule.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.TextRenderingModule"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.UI.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.UIElementsModule"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.UIElementsModule.dll</HintPath></Reference>
+    <Reference Include="UnityEngine.UIModule"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.UIModule.dll</HintPath></Reference>
+    <Reference Include="WindowsInput"><HintPath>..\WindowsInput.dll</HintPath></Reference>
   </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="lib\" />
-  </ItemGroup>
-
 </Project>

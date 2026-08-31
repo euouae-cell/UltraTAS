@@ -1,611 +1,356 @@
-﻿using BepInEx;
-using Configgy;
+﻿```csharp
+using BepInEx;
+using System;
 using System.Collections;
-//using System.Numerics;
-using System.Text;
-using UltraTAS;
-
-//using HarmonyLib;
+using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
-using UnityEngine.InputSystem;
-using UnityEngine.InputSystem.LowLevel;
-using WindowsInput;
-using WindowsInput.Native;
-using static UnityEngine.InputSystem.DefaultInputActions;
-using Random = UnityEngine.Random;
-using PlayerActions = UltraTAS.PlayerActions;
 
 namespace _UltraTAS
 {
     [BepInPlugin("UltraTAS", "UltraTAS", "1.0.0")]
     public class UltraTasCore : BaseUnityPlugin
     {
-        protected void Awake()
+        private bool recording = false;
+        private bool playing = false;
+
+        private int frame = 0;
+        private int playbackFrame = 0;
+
+        private string currentFile = "";
+
+        private readonly List<FrameData> recordedFrames = new();
+
+        private void Awake()
         {
-            Random.InitState(0);
-            UltraTasConfig.RefreshTASList();
-            _ = Simulator;
-            UltraTasConfig.CfgBuilder = new ConfigBuilder("UltraTAS", null);
-            UltraTasConfig.CfgBuilder.BuildAll();
-            StartCoroutine(CustUpdate());
-            Logger.LogInfo("DolfeTAS Mod Loaded");
-            //new Harmony("DolfeMODS.Ultrakill.UltraTAS").PatchAll();
+            Logger.LogInfo("================================");
+            Logger.LogInfo("ULTRATAS CORE ACTUALLY WORKS");
+            Logger.LogInfo("Simple recorder/playback version");
+            Logger.LogInfo("F6 = Record");
+            Logger.LogInfo("F7 = Playback");
+            Logger.LogInfo("================================");
         }
 
-        protected void Update()
+        private void Update()
         {
-            if (!LoopRunning)
+            // F6 - recording
+            if (Input.GetKeyDown(KeyCode.F6))
             {
-                StartCoroutine(CustUpdate());
-                Logger.LogInfo("Started Loop");
+                if (!recording)
+                    StartRecording();
+                else
+                    StopRecording();
             }
-            if (Status == null)
+
+            // F7 - playback
+            if (Input.GetKeyDown(KeyCode.F7))
             {
-                SetUpGameObjects();
+                if (!playing)
+                    StartPlayback();
+                else
+                    StopPlayback();
             }
-            else
+
+            if (recording)
             {
-                try
-                {
-                    StringBuilder stringBuilder = new();
-                    stringBuilder.Clear();
-                    foreach (VirtualKeyCode virtualKeyCode in pressedSpecialKeys)
-                    {
-                        stringBuilder.Append(string.Format("Key: {0} \n", virtualKeyCode));
-                    }
-                    foreach (Key key in pressedDownKeys)
-                    {
-                        stringBuilder.Append(string.Format("Key: {0} \n", key));
-                    }
-                    string text = stringBuilder.ToString();
-                    Status.text = string.Concat(
-                    [
-                        "\r\nTime Paused: ", TimePaused.ToString(),
-                        "\r\nRecording TAS: ", CaptureInputs.ToString(),
-                        "\r\nCurrent TAS Recoding to: ", UltraTasConfig.TasName.Value,
-                        "\r\nPlaying TAS: ", PlayingTAS.ToString(),
-                        "\r\nSelected TAS Name: ", UltraTasConfig.TasReplayName?.currentIndex.HasValue == true ? UltraTAS.TempTAS[UltraTasConfig.TasReplayName.currentIndex.Value] : "N/A",
-                        "\r\nAll Active Keys (Being played by TAS): \r\n", text,
-                        "\r\n                "
-                    ]);
-                }
-                catch (Exception)
-                {
-                    Logger.LogError("Error in Update");
-                }
-            }
-            if (KeysStatus.Count == 0)
-            {
-                foreach (object obj in Enum.GetValues(typeof(Keys)))
-                {
-                    Keys item = (Keys)obj;
-                    (VirtualKeyCode, bool) cval = ((VirtualKeyCode)item, false);
-                    KeysStatus.Add(cval);
-                }
-            }
-            if (inverseInputsDictionary.Count == 0 && MonoSingleton<InputManager>.Instance != null)
-            {
-                Dictionary<string, KeyCode> inputsDictionary = MonoSingleton<InputManager>.Instance.inputsDictionary;
-                if (inputsDictionary == null)
-                {
-                    Debug.LogError("InputsDictionary is null");
-                    return;
-                }
-                Dictionary<KeyCode, string> dictionary = inputsDictionary.ToDictionary(
-                    kvp => kvp.Value,
-                    kvp => kvp.Key);
-                inverseInputsDictionary = dictionary;
+                RecordFrame();
             }
         }
 
-        private void SetUpGameObjects()
+        private void StartRecording()
         {
-            GameObject gameObject = new("StatusText");
-            gameObject.transform.SetParent(GameObject.Find("Canvas").transform, false);
-
-            _ = Status;
-
-            CanvasGroup canvasGroup = gameObject.AddComponent<CanvasGroup>();
-            canvasGroup.interactable = false;
-            canvasGroup.blocksRaycasts = false;
-        }
-
-        private IEnumerator CustUpdate()
-        {
-            LoopRunning = true;
-            ToggleRecording(Input.GetKeyDown(UltraTasConfig.StartRecording.Value));
-            PlayTAS();
-            PauseGame();
-            ManagePausedGame();
-            AdvFrame(Input.GetKeyDown(UltraTasConfig.AdvFrame.Value));
-
-            if (actionMappings.Count == 0 && MonoSingleton<InputManager>.Instance != null)
+            if (playing)
             {
-                List<ValueTuple<string, KeyCode>> list2 = [];
-                foreach (string action in PlayerActions.List)
-                {
-                    (string, KeyCode) invertedKeyCodeDict = (action, KeyCodeDictionaries.GetKeyCodeFromInputsDic(action));
-                    list2.Add(invertedKeyCodeDict);
-                }
-                Dictionary<string, VirtualKeyCode> dictionary = [];
-                foreach (ValueTuple<string, KeyCode> valueTuple2 in list2)
-                {
-                    VirtualKeyCode? virtualKeyCode = KeyCodeDictionaries.GetVirtualKeyCode(valueTuple2.Item2);
-                    if (virtualKeyCode == null) continue;
-                    dictionary.Add(valueTuple2.Item1, virtualKeyCode.Value);
-                }
-                actionMappings = dictionary;
-            }
-            if (CaptureInputs)
-            {
-                List<string> list3 = [];
-                if (MonoSingleton<InputManager>.Instance != null)
-                {
-                    foreach (KeyValuePair<string, KeyCode> keyValuePair in MonoSingleton<InputManager>.Instance.inputsDictionary)
-                    {
-                        string? val = GetStringFromInputsDic(keyValuePair.Value);
-                        if (keyValuePair.Key == null && Input.GetKey(keyValuePair.Value) && val != null)
-                        {
-                            list3.Add(val);
-                            print("Pressing: Key: " + GetStringFromInputsDic(keyValuePair.Value));
-                        }
-                    }
-                }
-                if (!TimePaused || (TimePaused && Input.GetKeyDown(UltraTasConfig.AdvFrame.Value)))
-                {
-                    frame++;
-                    print(string.Format("Frame: {0}", frame));
-                    list3.Add("DOLF" + frame.ToString());
-                    list3.Add("X" + MonoSingleton<CameraController>.Instance.rotationX.ToString());
-                    list3.Add("Y" + MonoSingleton<CameraController>.Instance.rotationY.ToString());
-                }
-                SaveFrameData(list3);
-            }
-            yield return new WaitForEndOfFrame();
-            StartCoroutine(CustUpdate());
-            yield break;
-        }
-
-        private void AdvFrame(bool flag)
-        {
-            if (!flag) return;
-            StartCoroutine(UltraTAS.AdvanceFrame());
-        }
-
-        private void PauseGame()
-        {
-            if (Input.GetKeyDown(UltraTasConfig.PauseGame.Value))
-            {
-                TimePaused = !TimePaused;
-                Debug.Log($"Time Paused = {TimePaused}");
-                if (TimePaused)
-                {
-                    prevTimeScale = Time.timeScale;
-                }
-            }
-            
-        }
-
-        private void ManagePausedGame()
-        {
-            if (TimePaused)
-            {
-                Time.timeScale = 0f;
-            }
-            else if (Time.timeScale == 0f && !MonoSingleton<OptionsManager>.Instance.paused)
-            {
-                Time.timeScale = prevTimeScale;
-            }
-        }
-
-        private void PlayTAS()
-        {
-            if (!Input.GetKeyDown(UltraTasConfig.PlayTAS.Value)) return;
-            StartTASReplay();
-        }
-
-        private void ToggleRecording(bool flag)
-        {
-            if (!flag) return;
-
-            CaptureInputs = !CaptureInputs;
-            print(CaptureInputs);
-            if (CaptureInputs)
-            {
-                MakeFileAndStuff();
-                print("RECORDING TAS STARTED");
+                Logger.LogWarning("Cannot record while playing.");
                 return;
             }
-            else
+
+            recordedFrames.Clear();
+            frame = 0;
+
+            string folder = Path.Combine(
+                Paths.PluginPath,
+                "UltraTAS"
+            );
+
+            Directory.CreateDirectory(folder);
+
+            currentFile = Path.Combine(
+                folder,
+                "test.tas"
+            );
+
+            recording = true;
+
+            Logger.LogInfo("=== RECORDING STARTED ===");
+            Logger.LogInfo($"Saving to: {currentFile}");
+        }
+
+        private void StopRecording()
+        {
+            recording = false;
+
+            SaveRecording();
+
+            Logger.LogInfo("=== RECORDING STOPPED ===");
+            Logger.LogInfo($"Frames recorded: {recordedFrames.Count}");
+        }
+
+        private void RecordFrame()
+        {
+            FrameData data = new FrameData();
+
+            data.frame = frame++;
+
+            data.cameraX = GetCameraX();
+            data.cameraY = GetCameraY();
+
+            // Keyboard
+            foreach (KeyCode key in Enum.GetValues(typeof(KeyCode)))
             {
-                frame = 0;
-                print("RECORDING TAS ENDED");
-                List<string> list = ["END"];
-                
-                if (CurrentTASFile == null)
+                if (Input.GetKey(key))
                 {
-                    Logger.LogError("CurrentTASFile is null");
-                    return;
+                    data.keys.Add(key);
                 }
-                File.AppendAllLines(CurrentTASFile, list);
+            }
+
+            // Mouse
+            if (Input.GetMouseButton(0))
+                data.mouse0 = true;
+
+            if (Input.GetMouseButton(1))
+                data.mouse1 = true;
+
+            recordedFrames.Add(data);
+        }
+
+        private void SaveRecording()
+        {
+            try
+            {
+                using StreamWriter writer = new StreamWriter(currentFile);
+
+                foreach (FrameData frameData in recordedFrames)
+                {
+                    writer.WriteLine($"FRAME {frameData.frame}");
+                    writer.WriteLine($"CAMERA_X {frameData.cameraX}");
+                    writer.WriteLine($"CAMERA_Y {frameData.cameraY}");
+
+                    foreach (KeyCode key in frameData.keys)
+                    {
+                        writer.WriteLine($"KEY {key}");
+                    }
+
+                    if (frameData.mouse0)
+                        writer.WriteLine("MOUSE0");
+
+                    if (frameData.mouse1)
+                        writer.WriteLine("MOUSE1");
+
+                    writer.WriteLine("END");
+                }
+
+                Logger.LogInfo("TAS saved successfully.");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError($"Failed to save TAS: {ex}");
             }
         }
 
-        private void SaveFrameData(List<string> TASLogFile)
+        private void StartPlayback()
         {
-            this.WriteToFile(TASLogFile);
-            TASLogFile.Clear();
-        }
-
-        private void WriteToFile(List<string> text)
-        {
-            if (CurrentTASFile == null)
+            if (recording)
             {
-                Logger.LogError("CurrentTASFile is null");
-            }
-            else
-            {
-                File.AppendAllLines(CurrentTASFile, text);
-            }
-        }
-
-        private void MakeFileAndStuff()
-        {
-            Directory.CreateDirectory(UltraTasConfig.FileSavePath);
-            ConfigInputField<string> tasName = UltraTasConfig.TasName;
-            string tasFilePath = UltraTAS.MakeNewSave($"{tasName}.DolfeTAS");
-            using (File.Create(tasFilePath))
-            {
-            }
-            CurrentTASFile = tasFilePath;
-        }
-
-
-        private void StartTASReplay()
-        {
-            if (this.PlayingTAS)
-            {
-                base.StartCoroutine(this.TASCheck());
-                MonoBehaviour.print("Playing TAS");
+                Logger.LogWarning("Cannot play while recording.");
                 return;
             }
-            this.PlayingTAS = true;
-            base.StartCoroutine(this.ReplayTASDos());
+
+            if (!File.Exists(currentFile))
+            {
+                Logger.LogWarning("No TAS file exists yet.");
+                return;
+            }
+
+            LoadRecording();
+
+            if (recordedFrames.Count == 0)
+            {
+                Logger.LogWarning("TAS contains no frames.");
+                return;
+            }
+
+            playing = true;
+            playbackFrame = 0;
+
+            Logger.LogInfo("=== PLAYBACK STARTED ===");
+
+            StartCoroutine(PlaybackCoroutine());
         }
 
-        private IEnumerator TASCheck()
+        private void StopPlayback()
         {
-            bool keepRunning = true;
-            yield return new WaitForSeconds(0.05f);
-            while (keepRunning || this.PlayingTAS)
-            {
-                if (Input.GetKey(UltraTasConfig.PlayTAS.Value))
-                {
-                    this.ReplayINT = -1;
-                    keepRunning = false;
-                    this.PlayingTAS = false;
-                    MonoBehaviour.print("Stopping TAS Replay");
-                }
-                yield return new WaitForEndOfFrame();
-            }
-            yield break;
+            playing = false;
+            Logger.LogInfo("=== PLAYBACK STOPPED ===");
         }
 
-
-        internal IEnumerator ReplayTASDos()
+        private IEnumerator PlaybackCoroutine()
         {
-            MonoBehaviour.print("Playing TAS Started");
-            UltraTAS.wasTSUsedThisScene = true;
-            string[]? lines = null;
-            if (UltraTasConfig.TasReplayName != null)
+            while (playing && playbackFrame < recordedFrames.Count)
             {
-                lines = File.ReadAllLines(UltraTasConfig.TasReplayName.Value);
-            }
-            else
-            {
-                throw new Exception("TAS Replay Name is null");
-            }
-            List<string> inputs = [];
-            HashSet<KeyCode> pressedDownMouse = [];
-            bool ShootPressed = false;
-            bool preventRailcannonSpam = true;
+                FrameData data = recordedFrames[playbackFrame];
 
-            while (this.ReplayINT != -1)
+                ApplyCamera(data);
+
+                // For now, playback only reports the inputs.
+                // Actual ULTRAKILL input injection comes next.
+                Logger.LogInfo(
+                    $"Playback frame {data.frame} | " +
+                    $"Keys: {data.keys.Count} | " +
+                    $"Mouse0: {data.mouse0} | " +
+                    $"Mouse1: {data.mouse1}"
+                );
+
+                playbackFrame++;
+
+                yield return null;
+            }
+
+            if (playing)
             {
-                this.ReplayINT++;
-                inputs.Clear();
-                string ThisFrame = "DOLF" + ReplayINT.ToString();
-                string NextFrame = "DOLF" + (this.ReplayINT + 1).ToString();
-                int num = Array.FindIndex(lines, (string line) => line.Contains(ThisFrame));
-                int num2 = Array.FindIndex(lines, num, (string line) => line.Contains(NextFrame));
-                if (num < 0 || num2 < 0)
+                Logger.LogInfo("=== PLAYBACK FINISHED ===");
+            }
+
+            playing = false;
+        }
+
+        private void LoadRecording()
+        {
+            recordedFrames.Clear();
+
+            try
+            {
+                string[] lines = File.ReadAllLines(currentFile);
+
+                FrameData current = null;
+
+                foreach (string line in lines)
                 {
-                    this.ReplayINT = -1;
-                    break;
-                }
-                for (int i = num + 1; i < num2; i++)
-                {
-                    inputs.Add(lines[i].Trim());
-                }
-                if (inputs.Count > 2)
-                {
-                    MonoBehaviour.print("Frame: " + ReplayINT.ToString());
-                }
-                pressedDownKeys.Clear();
-                inputActionStates.Clear();
-                foreach (string text in inputs)
-                {
-                    if (text.StartsWith("X"))
+                    if (line.StartsWith("FRAME "))
                     {
-                        if (float.TryParse(text.AsSpan(1), out float rotationX))
-                        {
-                            MonoSingleton<CameraController>.Instance.rotationX = rotationX;
-                        }
+                        current = new FrameData();
+                        current.frame = int.Parse(line.Substring(6));
                     }
-                    else if (text.StartsWith("Y"))
+                    else if (line.StartsWith("CAMERA_X "))
                     {
-                        if (float.TryParse(text.AsSpan(1), out float rotationY))
-                        {
-                            MonoSingleton<CameraController>.Instance.rotationY = rotationY;
-                        }
+                        current.cameraX =
+                            float.Parse(line.Substring(9));
                     }
-                    else if (PlayerActions.List.Contains(text) && (text != "Fire1" || text != "Fire2"))
+                    else if (line.StartsWith("CAMERA_Y "))
                     {
-                        if (actionMappings.TryGetValue(text, out VirtualKeyCode virtualKeyCode))
-                        {
-                            inputActionStates.Add(virtualKeyCode);
-                            pressedSpecialKeys.Add(virtualKeyCode);
-                            this.SimulateSpecial(virtualKeyCode, true);
-                        }
-                        else
-                        {
-                            MonoBehaviour.print("Action has no value! " + text);
-                        }
+                        current.cameraY =
+                            float.Parse(line.Substring(9));
                     }
-                    else if (text == "Fire1" && MonoSingleton<GunControl>.Instance.currentSlot != 4)
+                    else if (line.StartsWith("KEY "))
                     {
-                        MonoSingleton<InputManager>.Instance.InputSource.Fire1.IsPressed = true;
-                        MonoSingleton<InputManager>.Instance.InputSource.Fire1.PerformedFrame = Time.frameCount + 1;
-                        ShootPressed = true;
-                        print("Fire 1 is pressed");
-                    }
-                    else if (MonoSingleton<GunControl>.Instance.currentSlot == 4 && text == "Fire1")
-                    {
-                        if (!preventRailcannonSpam)
+                        if (current != null)
                         {
-                            preventRailcannonSpam = true;
-                            MonoSingleton<InputManager>.Instance.InputSource.Fire1.PerformedFrame = Time.frameCount + 1;
-                        }
-                    }
-                    else
-                    {
-                        KeyCode? keyCodeFromInputsDic = KeyCodeDictionaries.GetKeyCodeFromInputsDic(text);
-                        KeyCode valueOrDefault = keyCodeFromInputsDic.GetValueOrDefault();
-                        Key? keyFromKeyCode = KeyCodeDictionaries.GetKeyFromKeyCode(valueOrDefault);
-                        if (keyFromKeyCode != null && !KeyCodeDictionaries.IsMouseInput(valueOrDefault))
-                        {
-                            pressedDownKeys.Add(keyFromKeyCode.Value);
-                            KeyCodeDictionaries.SimulateKeybord(keyFromKeyCode.Value, true);
-                        }
-                        else if (KeyCodeDictionaries.IsMouseInput(valueOrDefault))
-                        {
-                            pressedDownMouse.Add(valueOrDefault);
-                            if (valueOrDefault == KeyCode.Mouse0)
+                            string keyName = line.Substring(4);
+
+                            if (Enum.TryParse(
+                                keyName,
+                                out KeyCode key))
                             {
-                                MouseState mouseState = default;
-                                InputDevice device = InputSystem.GetDevice<Mouse>();
-                                mouseState.WithButton(UnityEngine.InputSystem.LowLevel.MouseButton.Left, true);
-                                InputSystem.QueueStateEvent(device, mouseState, -1.0);
-                            }
-                            else if (valueOrDefault == KeyCode.Mouse1)
-                            {
-                                KeyCodeDictionaries.SimulateMouseButton(UnityEngine.InputSystem.LowLevel.MouseButton.Right, true);
+                                current.keys.Add(key);
                             }
                         }
-                        else
+                    }
+                    else if (line == "MOUSE0")
+                    {
+                        if (current != null)
+                            current.mouse0 = true;
+                    }
+                    else if (line == "MOUSE1")
+                    {
+                        if (current != null)
+                            current.mouse1 = true;
+                    }
+                    else if (line == "END")
+                    {
+                        if (current != null)
                         {
-                            MonoBehaviour.print(string.Format("Key: {0} is null or {1} is wrong or {2} is wrong", keyCodeFromInputsDic, valueOrDefault, keyFromKeyCode));
+                            recordedFrames.Add(current);
+                            current = null;
                         }
                     }
                 }
-                ReleaseUnpressedKeysMouseButtonsAndSpecialActions(inputs, pressedDownMouse, pressedSpecialKeys, ref ShootPressed, ref preventRailcannonSpam);
-                yield return new WaitForEndOfFrame();
+
+                Logger.LogInfo(
+                    $"Loaded {recordedFrames.Count} frames."
+                );
             }
-            yield return new WaitForSeconds(0.05f);
-            for (int j = 0; j < KeysStatus.Count; j++)
+            catch (Exception ex)
             {
-                KeysStatus[j] = new ValueTuple<VirtualKeyCode, bool>(KeysStatus[j].Item1, false);
-                SimulateSpecial(KeysStatus[j].Item1, false);
+                Logger.LogError(
+                    $"Failed to load TAS: {ex}"
+                );
             }
-            foreach (Key key in this.pressedDownKeys)
-            {
-                KeyCodeDictionaries.SimulateKeybord(key, false);
-            }
-            pressedDownKeys.Clear();
-            foreach (KeyCode keyCode in pressedDownMouse)
-            {
-                bool left = keyCode == KeyCode.Mouse0;
-                KeyCodeDictionaries.SimulateMouseButton(left, false);
-            }
-            pressedDownMouse.Clear();
-            ReplayINT = 0;
-            PlayingTAS = false;
-            MonoBehaviour.print("TAS REPLAY FINISHED");
-            yield break;
         }
 
-        private void ReleaseUnpressedKeysMouseButtonsAndSpecialActions(List<string> inputs, HashSet<KeyCode> pressedDownMouse, HashSet<VirtualKeyCode> pressedSpecialKeys, ref bool ShootPressed, ref bool preventRailcannonSpam)
+        private float GetCameraX()
         {
-            HashSet<Key> hashSet = [];
-            HashSet<VirtualKeyCode> hashSet2 = [];
-            foreach (string text in inputs)
+            try
             {
-                KeyCode valueOrDefault = KeyCodeDictionaries.GetKeyCodeFromInputsDic(text);
-                Key? keyFromKeyCode = KeyCodeDictionaries.GetKeyFromKeyCode(valueOrDefault);
-                if (keyFromKeyCode != null && !KeyCodeDictionaries.IsMouseInput(valueOrDefault))
-                {
-                    hashSet.Add(keyFromKeyCode.Value);
-                }
-                if (actionMappings.TryGetValue(text.Trim(), out VirtualKeyCode item))
-                {
-                    hashSet2.Add(item);
-                }
+                return MonoSingleton<CameraController>
+                    .Instance.rotationX;
             }
-            if (preventRailcannonSpam && !inputs.Contains("Fire1"))
+            catch
             {
-                preventRailcannonSpam = false;
-            }
-            if (ShootPressed && !inputs.Contains("Fire1"))
-            {
-                MonoSingleton<InputManager>.Instance.InputSource.Fire1.IsPressed = false;
-                ShootPressed = false;
-                print("Unpressed Fire1");
-            }
-            foreach (Key key in this.pressedDownKeys)
-            {
-                if (!hashSet.Contains(key))
-                {
-                    print(string.Format("Releasing key: {0}", key));
-                    KeyCodeDictionaries.SimulateKeybord(key, false);
-                }
-            }
-            foreach (object obj in Enum.GetValues(typeof(KeyCode)))
-            {
-                KeyCode keyCode = (KeyCode)obj;
-                if (KeyCodeDictionaries.IsMouseInput(keyCode) && pressedDownMouse.Contains(keyCode) && !inputs.Contains(keyCode.ToString()))
-                {
-                    bool left = keyCode == KeyCode.Mouse0;
-                    KeyCodeDictionaries.SimulateMouseButton(left, false);
-                }
-            }
-            List<VirtualKeyCode> list = [];
-            foreach (VirtualKeyCode virtualKeyCode in pressedSpecialKeys)
-            {
-                if (!hashSet2.Contains(virtualKeyCode))
-                {
-                    MonoBehaviour.print(string.Format("Releasing special action: {0}", virtualKeyCode));
-                    SimulateSpecial(virtualKeyCode, false);
-                    list.Add(virtualKeyCode);
-                }
-            }
-            foreach (VirtualKeyCode item2 in list)
-            {
-                pressedSpecialKeys.Remove(item2);
+                return 0f;
             }
         }
 
-        internal void SimulateSpecial(VirtualKeyCode input, bool press)
+        private float GetCameraY()
         {
-            int num = this.KeysStatus.FindIndex((ValueTuple<VirtualKeyCode, bool> k) => k.Item1 == input);
-            if (!press)
+            try
             {
-                this.Simulator.Keyboard.KeyUp(input);
-                return;
+                return MonoSingleton<CameraController>
+                    .Instance.rotationY;
             }
-            this.Simulator.Keyboard.KeyDown(input);
-            if (num >= 0)
+            catch
             {
-                this.KeysStatus[num] = new ValueTuple<VirtualKeyCode, bool>(input, true);
-                return;
+                return 0f;
             }
-            this.KeysStatus.Add(new ValueTuple<VirtualKeyCode, bool>(input, true));
-            if (num >= 0)
-            {
-                this.KeysStatus[num] = new ValueTuple<VirtualKeyCode, bool>(input, false);
-                return;
-            }
-            this.KeysStatus.Add(new ValueTuple<VirtualKeyCode, bool>(input, false));
         }
 
-        public string GetStringFromInputsDic(KeyCode input)
+        private void ApplyCamera(FrameData data)
         {
-            return inverseInputsDictionary[input];
-        }
-
-        internal void TranslateMapping(string input, out VirtualKeyCode action)
-        {
-            if (!actionMappings.TryGetValue(input, out action))
+            try
             {
-                throw new Exception("Action not found in mapping");
+                MonoSingleton<CameraController>
+                    .Instance.rotationX = data.cameraX;
+
+                MonoSingleton<CameraController>
+                    .Instance.rotationY = data.cameraY;
+            }
+            catch
+            {
+                // Camera isn't available yet.
             }
         }
 
-        internal bool CaptureInputs;
-        internal string? CurrentTASFile
+        private class FrameData
         {
-            get;
-            set;
+            public int frame;
+
+            public float cameraX;
+            public float cameraY;
+
+            public List<KeyCode> keys = new();
+
+            public bool mouse0;
+            public bool mouse1;
         }
-        private InputSimulator? _simulator;
-        internal InputSimulator Simulator
-        { 
-            get
-            {
-                _simulator ??= new InputSimulator();
-                return _simulator;
-            }
-        }
-
-        internal int frame;
-
-
-
-        readonly static PlayerActionsEnum[] actionsArray = (PlayerActionsEnum[])Enum.GetValues(typeof(PlayerActionsEnum));
-        internal static string[] ActionNames => actionsArray.Select(action => action.ToString()).ToArray();
-
-        private UnityEngine.UI.Text _status;
-        internal UnityEngine.UI.Text Status 
-        {
-            get
-            {
-                if (_status == null)
-                {
-                    InitialiseStatus();
-                }
-                return _status;
-            }
-            set { _status = value} 
-        }
-
-        private void InitialiseStatus()
-        {
-            _status = gameObject.AddComponent<UnityEngine.UI.Text>();
-            _status.font = Resources.GetBuiltinResource<UnityEngine.Font>("Arial.ttf");
-            _status.color = UnityEngine.Color.white;
-            _status.fontSize = 20;
-            _status.alignment = 0;
-            RectTransform component = _status.GetComponent<RectTransform>();
-            component.anchorMin = new Vector2(0f, 1f);
-            component.anchorMax = new Vector2(0f, 1f);
-            component.pivot = new Vector2(0f, 1f);
-            component.anchoredPosition = new Vector2(0f, -1f);
-            component.sizeDelta = new Vector2(2200f, 10000f);
-            component.anchoredPosition += new Vector2(0f, 0f);
-        }
-
-        internal bool LoopRunning;
-
-        internal bool TimePaused;
-
-        internal bool TimePausedUndone = true;
-
-        internal float prevTimeScale = 1f;
-
-        internal int ReplayINT;
-
-        internal bool PlayingTAS;
-
-        internal List<Key> pressedDownKeys = [];
-
-        internal List<VirtualKeyCode> inputActionStates = [];
-
-
-        internal HashSet<VirtualKeyCode> pressedSpecialKeys = [];
-
-        internal List<ValueTuple<VirtualKeyCode, bool>> KeysStatus = [];
-
-        internal Dictionary<KeyCode, string> inverseInputsDictionary = [];
-
-        internal Dictionary<string, VirtualKeyCode> actionMappings = [];
     }
 }
+```
