@@ -1,54 +1,72 @@
-﻿```csharp
-using BepInEx;
+﻿using BepInEx;
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.IO;
 using UnityEngine;
 
 namespace _UltraTAS
 {
-    [BepInPlugin("UltraTAS", "UltraTAS", "1.0.0")]
-    public class UltraTasCore : BaseUnityPlugin
+[BepInPlugin("UltraTAS", "UltraTAS", "1.0.0")]
+public class UltraTasCore : BaseUnityPlugin
+{
+private bool recording = false;
+private int frame = 0;
+
+    private readonly List<FrameData> frames = new List<FrameData>();
+
+    private void Awake()
     {
-        private bool recording = false;
-        private bool playing = false;
+        Logger.LogInfo("[UltraTAS DEBUG] ===== AWAKE START =====");
 
-        private int frame = 0;
-        private int playbackFrame = 0;
-
-        private string currentFile = "";
-
-        private readonly List<FrameData> recordedFrames = new();
-
-        private void Awake()
+        try
         {
-            Logger.LogInfo("================================");
-            Logger.LogInfo("ULTRATAS CORE ACTUALLY WORKS");
-            Logger.LogInfo("Simple recorder/playback version");
-            Logger.LogInfo("F6 = Record");
-            Logger.LogInfo("F7 = Playback");
-            Logger.LogInfo("================================");
+            Logger.LogInfo("[UltraTAS DEBUG] Step 1: Awake entered.");
+
+            Logger.LogInfo("[UltraTAS DEBUG] Step 2: Initializing variables.");
+            recording = false;
+            frame = 0;
+
+            Logger.LogInfo("[UltraTAS DEBUG] Step 3: Frame list count = " + frames.Count);
+
+            Logger.LogInfo("[UltraTAS DEBUG] Step 4: Testing KeyCode enum.");
+            int keyCount = Enum.GetValues(typeof(KeyCode)).Length;
+            Logger.LogInfo("[UltraTAS DEBUG] Step 5: KeyCode count = " + keyCount);
+
+            Logger.LogInfo("[UltraTAS DEBUG] Step 6: Testing Unity Time.");
+            Logger.LogInfo("[UltraTAS DEBUG] Time.time = " + Time.time);
+
+            Logger.LogInfo("[UltraTAS DEBUG] Step 7: Testing Input system.");
+            bool testKey = Input.GetKey(KeyCode.F6);
+            Logger.LogInfo("[UltraTAS DEBUG] Step 8: Input.GetKey(F6) = " + testKey);
+
+            Logger.LogInfo("[UltraTAS DEBUG] ===== AWAKE SUCCESS =====");
         }
-
-        private void Update()
+        catch (Exception ex)
         {
-            // F6 - recording
+            Logger.LogError("[UltraTAS DEBUG] !!! AWAKE FAILED !!!");
+            Logger.LogError("[UltraTAS DEBUG] Exception type: " + ex.GetType().FullName);
+            Logger.LogError("[UltraTAS DEBUG] Exception message: " + ex.Message);
+            Logger.LogError("[UltraTAS DEBUG] Stack trace: " + ex.StackTrace);
+        }
+    }
+
+    private void Update()
+    {
+        try
+        {
             if (Input.GetKeyDown(KeyCode.F6))
             {
-                if (!recording)
-                    StartRecording();
-                else
-                    StopRecording();
-            }
+                Logger.LogInfo("[UltraTAS DEBUG] F6 PRESSED");
 
-            // F7 - playback
-            if (Input.GetKeyDown(KeyCode.F7))
-            {
-                if (!playing)
-                    StartPlayback();
+                if (recording)
+                {
+                    Logger.LogInfo("[UltraTAS DEBUG] Currently recording -> stopping.");
+                    StopRecording();
+                }
                 else
-                    StopPlayback();
+                {
+                    Logger.LogInfo("[UltraTAS DEBUG] Currently stopped -> starting.");
+                    StartRecording();
+                }
             }
 
             if (recording)
@@ -56,56 +74,92 @@ namespace _UltraTAS
                 RecordFrame();
             }
         }
-
-        private void StartRecording()
+        catch (Exception ex)
         {
-            if (playing)
-            {
-                Logger.LogWarning("Cannot record while playing.");
-                return;
-            }
+            Logger.LogError("[UltraTAS DEBUG] !!! UPDATE FAILED !!!");
+            Logger.LogError("[UltraTAS DEBUG] Exception type: " + ex.GetType().FullName);
+            Logger.LogError("[UltraTAS DEBUG] Exception message: " + ex.Message);
+            Logger.LogError("[UltraTAS DEBUG] Stack trace: " + ex.StackTrace);
 
-            recordedFrames.Clear();
+            recording = false;
+        }
+    }
+
+    private void StartRecording()
+    {
+        Logger.LogInfo("[UltraTAS DEBUG] ===== START RECORDING =====");
+
+        try
+        {
+            Logger.LogInfo("[UltraTAS DEBUG] Start step 1: Clearing frames.");
+            frames.Clear();
+
+            Logger.LogInfo("[UltraTAS DEBUG] Start step 2: Resetting frame counter.");
             frame = 0;
 
-            string folder = Path.Combine(
-                Paths.PluginPath,
-                "UltraTAS"
-            );
-
-            Directory.CreateDirectory(folder);
-
-            currentFile = Path.Combine(
-                folder,
-                "test.tas"
-            );
-
+            Logger.LogInfo("[UltraTAS DEBUG] Start step 3: Setting recording = true.");
             recording = true;
 
-            Logger.LogInfo("=== RECORDING STARTED ===");
-            Logger.LogInfo($"Saving to: {currentFile}");
+            Logger.LogInfo("[UltraTAS DEBUG] ===== RECORDING STARTED =====");
         }
-
-        private void StopRecording()
+        catch (Exception ex)
         {
+            Logger.LogError("[UltraTAS DEBUG] !!! START RECORDING FAILED !!!");
+            Logger.LogError("[UltraTAS DEBUG] Exception type: " + ex.GetType().FullName);
+            Logger.LogError("[UltraTAS DEBUG] Exception message: " + ex.Message);
+            Logger.LogError("[UltraTAS DEBUG] Stack trace: " + ex.StackTrace);
+
+            recording = false;
+        }
+    }
+
+    private void StopRecording()
+    {
+        Logger.LogInfo("[UltraTAS DEBUG] ===== STOP RECORDING =====");
+
+        try
+        {
+            Logger.LogInfo("[UltraTAS DEBUG] Stop step 1: Current frame = " + frame);
+            Logger.LogInfo("[UltraTAS DEBUG] Stop step 2: Stored frames = " + frames.Count);
+
             recording = false;
 
-            SaveRecording();
-
-            Logger.LogInfo("=== RECORDING STOPPED ===");
-            Logger.LogInfo($"Frames recorded: {recordedFrames.Count}");
+            Logger.LogInfo("[UltraTAS DEBUG] Stop step 3: recording = false");
+            Logger.LogInfo("[UltraTAS DEBUG] ===== RECORDING STOPPED =====");
+            Logger.LogInfo("[UltraTAS DEBUG] Total frames = " + frames.Count);
         }
-
-        private void RecordFrame()
+        catch (Exception ex)
         {
+            Logger.LogError("[UltraTAS DEBUG] !!! STOP RECORDING FAILED !!!");
+            Logger.LogError("[UltraTAS DEBUG] Exception type: " + ex.GetType().FullName);
+            Logger.LogError("[UltraTAS DEBUG] Exception message: " + ex.Message);
+            Logger.LogError("[UltraTAS DEBUG] Stack trace: " + ex.StackTrace);
+        }
+    }
+
+    private void RecordFrame()
+    {
+        try
+        {
+            if (frame % 60 == 0)
+            {
+                Logger.LogInfo(
+                    "[UltraTAS DEBUG] Recording frame " +
+                    frame +
+                    " | Stored frames = " +
+                    frames.Count
+                );
+            }
+
+            Logger.LogDebug("[UltraTAS DEBUG] RecordFrame: creating FrameData.");
+
             FrameData data = new FrameData();
 
+            Logger.LogDebug("[UltraTAS DEBUG] RecordFrame: setting frame number.");
             data.frame = frame++;
 
-            data.cameraX = GetCameraX();
-            data.cameraY = GetCameraY();
+            Logger.LogDebug("[UltraTAS DEBUG] RecordFrame: enumerating keys.");
 
-            // Keyboard
             foreach (KeyCode key in Enum.GetValues(typeof(KeyCode)))
             {
                 if (Input.GetKey(key))
@@ -114,243 +168,40 @@ namespace _UltraTAS
                 }
             }
 
-            // Mouse
-            if (Input.GetMouseButton(0))
-                data.mouse0 = true;
+            Logger.LogDebug(
+                "[UltraTAS DEBUG] RecordFrame: keys recorded = " +
+                data.keys.Count
+            );
 
-            if (Input.GetMouseButton(1))
-                data.mouse1 = true;
+            Logger.LogDebug("[UltraTAS DEBUG] RecordFrame: reading mouse.");
 
-            recordedFrames.Add(data);
+            data.mouse0 = Input.GetMouseButton(0);
+            data.mouse1 = Input.GetMouseButton(1);
+
+            Logger.LogDebug("[UltraTAS DEBUG] RecordFrame: adding frame.");
+
+            frames.Add(data);
+
+            Logger.LogDebug("[UltraTAS DEBUG] RecordFrame: SUCCESS.");
         }
-
-        private void SaveRecording()
+        catch (Exception ex)
         {
-            try
-            {
-                using StreamWriter writer = new StreamWriter(currentFile);
+            Logger.LogError("[UltraTAS DEBUG] !!! RECORD FRAME FAILED !!!");
+            Logger.LogError("[UltraTAS DEBUG] Exception type: " + ex.GetType().FullName);
+            Logger.LogError("[UltraTAS DEBUG] Exception message: " + ex.Message);
+            Logger.LogError("[UltraTAS DEBUG] Stack trace: " + ex.StackTrace);
 
-                foreach (FrameData frameData in recordedFrames)
-                {
-                    writer.WriteLine($"FRAME {frameData.frame}");
-                    writer.WriteLine($"CAMERA_X {frameData.cameraX}");
-                    writer.WriteLine($"CAMERA_Y {frameData.cameraY}");
-
-                    foreach (KeyCode key in frameData.keys)
-                    {
-                        writer.WriteLine($"KEY {key}");
-                    }
-
-                    if (frameData.mouse0)
-                        writer.WriteLine("MOUSE0");
-
-                    if (frameData.mouse1)
-                        writer.WriteLine("MOUSE1");
-
-                    writer.WriteLine("END");
-                }
-
-                Logger.LogInfo("TAS saved successfully.");
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError($"Failed to save TAS: {ex}");
-            }
-        }
-
-        private void StartPlayback()
-        {
-            if (recording)
-            {
-                Logger.LogWarning("Cannot play while recording.");
-                return;
-            }
-
-            if (!File.Exists(currentFile))
-            {
-                Logger.LogWarning("No TAS file exists yet.");
-                return;
-            }
-
-            LoadRecording();
-
-            if (recordedFrames.Count == 0)
-            {
-                Logger.LogWarning("TAS contains no frames.");
-                return;
-            }
-
-            playing = true;
-            playbackFrame = 0;
-
-            Logger.LogInfo("=== PLAYBACK STARTED ===");
-
-            StartCoroutine(PlaybackCoroutine());
-        }
-
-        private void StopPlayback()
-        {
-            playing = false;
-            Logger.LogInfo("=== PLAYBACK STOPPED ===");
-        }
-
-        private IEnumerator PlaybackCoroutine()
-        {
-            while (playing && playbackFrame < recordedFrames.Count)
-            {
-                FrameData data = recordedFrames[playbackFrame];
-
-                ApplyCamera(data);
-
-                // For now, playback only reports the inputs.
-                // Actual ULTRAKILL input injection comes next.
-                Logger.LogInfo(
-                    $"Playback frame {data.frame} | " +
-                    $"Keys: {data.keys.Count} | " +
-                    $"Mouse0: {data.mouse0} | " +
-                    $"Mouse1: {data.mouse1}"
-                );
-
-                playbackFrame++;
-
-                yield return null;
-            }
-
-            if (playing)
-            {
-                Logger.LogInfo("=== PLAYBACK FINISHED ===");
-            }
-
-            playing = false;
-        }
-
-        private void LoadRecording()
-        {
-            recordedFrames.Clear();
-
-            try
-            {
-                string[] lines = File.ReadAllLines(currentFile);
-
-                FrameData current = null;
-
-                foreach (string line in lines)
-                {
-                    if (line.StartsWith("FRAME "))
-                    {
-                        current = new FrameData();
-                        current.frame = int.Parse(line.Substring(6));
-                    }
-                    else if (line.StartsWith("CAMERA_X "))
-                    {
-                        current.cameraX =
-                            float.Parse(line.Substring(9));
-                    }
-                    else if (line.StartsWith("CAMERA_Y "))
-                    {
-                        current.cameraY =
-                            float.Parse(line.Substring(9));
-                    }
-                    else if (line.StartsWith("KEY "))
-                    {
-                        if (current != null)
-                        {
-                            string keyName = line.Substring(4);
-
-                            if (Enum.TryParse(
-                                keyName,
-                                out KeyCode key))
-                            {
-                                current.keys.Add(key);
-                            }
-                        }
-                    }
-                    else if (line == "MOUSE0")
-                    {
-                        if (current != null)
-                            current.mouse0 = true;
-                    }
-                    else if (line == "MOUSE1")
-                    {
-                        if (current != null)
-                            current.mouse1 = true;
-                    }
-                    else if (line == "END")
-                    {
-                        if (current != null)
-                        {
-                            recordedFrames.Add(current);
-                            current = null;
-                        }
-                    }
-                }
-
-                Logger.LogInfo(
-                    $"Loaded {recordedFrames.Count} frames."
-                );
-            }
-            catch (Exception ex)
-            {
-                Logger.LogError(
-                    $"Failed to load TAS: {ex}"
-                );
-            }
-        }
-
-        private float GetCameraX()
-        {
-            try
-            {
-                return MonoSingleton<CameraController>
-                    .Instance.rotationX;
-            }
-            catch
-            {
-                return 0f;
-            }
-        }
-
-        private float GetCameraY()
-        {
-            try
-            {
-                return MonoSingleton<CameraController>
-                    .Instance.rotationY;
-            }
-            catch
-            {
-                return 0f;
-            }
-        }
-
-        private void ApplyCamera(FrameData data)
-        {
-            try
-            {
-                MonoSingleton<CameraController>
-                    .Instance.rotationX = data.cameraX;
-
-                MonoSingleton<CameraController>
-                    .Instance.rotationY = data.cameraY;
-            }
-            catch
-            {
-                // Camera isn't available yet.
-            }
-        }
-
-        private class FrameData
-        {
-            public int frame;
-
-            public float cameraX;
-            public float cameraY;
-
-            public List<KeyCode> keys = new();
-
-            public bool mouse0;
-            public bool mouse1;
+            recording = false;
         }
     }
+
+    private class FrameData
+    {
+        public int frame;
+        public List<KeyCode> keys = new List<KeyCode>();
+        public bool mouse0;
+        public bool mouse1;
+    }
 }
-```
+
+}
