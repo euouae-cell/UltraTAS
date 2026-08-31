@@ -1,5 +1,6 @@
 using BepInEx;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using System.Collections.Generic;
 using System.IO;
 
@@ -8,44 +9,35 @@ namespace UltraTAS
     [BepInPlugin("OWATAMSATE.UltraTAS", "UltraTAS", "1.0.0")]
     public class UltraTAS : BaseUnityPlugin
     {
-        // This mirrors the actions exposed by ULTRAKILL's PlayerInput.
-        // We are keeping the TAS frame format independent of the actual
-        // InputActionState API until that class has been inspected.
+        // ULTRAKILL's PlayerInput exposes these InputActionState-backed actions.
+        // Keep the recorder's representation aligned with that list so we can
+        // replace temporary polling with the game's existing Input System.
         private class TASFrame
         {
             public Vector2 Move;
             public Vector2 Look;
             public Vector2 WheelLook;
-
-            public bool Punch;
-            public bool Hook;
-            public bool Fire1;
-            public bool Fire2;
-            public bool Jump;
-            public bool Slide;
-            public bool Dodge;
-            public bool ChangeFist;
-
-            public bool NextVariation;
-            public bool PreviousVariation;
-            public bool NextWeapon;
-            public bool PrevWeapon;
-            public bool LastWeapon;
-
-            public bool SelectVariant1;
-            public bool SelectVariant2;
-            public bool SelectVariant3;
-
-            public bool Pause;
-            public bool Stats;
-
-            public bool Slot1;
-            public bool Slot2;
-            public bool Slot3;
-            public bool Slot4;
-            public bool Slot5;
-            public bool Slot6;
+            public bool Punch, Hook, Fire1, Fire2, Jump, Slide, Dodge, ChangeFist;
+            public bool NextVariation, PreviousVariation, NextWeapon, PrevWeapon, LastWeapon;
+            public bool SelectVariant1, SelectVariant2, SelectVariant3;
+            public bool Pause, Stats;
+            public bool Slot1, Slot2, Slot3, Slot4, Slot5, Slot6;
         }
+
+        // InputActionState information recovered from Assembly-CSharp.
+        // TriggerState stores phase/time/magnitude/control/binding state.
+        // BindingState stores action/control/interaction/processor relationships.
+        // UnmanagedMemory contains the contiguous native state arrays.
+        // This is documented here intentionally: playback should eventually feed
+        // the existing Input System rather than replacing it with OS key injection.
+        private static readonly string[] PlayerInputActions =
+        {
+            "Move", "Look", "WheelLook", "Punch", "Hook", "Fire1", "Fire2",
+            "Jump", "Slide", "Dodge", "ChangeFist", "NextVariation",
+            "PreviousVariation", "NextWeapon", "PrevWeapon", "LastWeapon",
+            "SelectVariant1", "SelectVariant2", "SelectVariant3", "Pause", "Stats",
+            "Slot1", "Slot2", "Slot3", "Slot4", "Slot5", "Slot6"
+        };
 
         private readonly List<TASFrame> frames = new List<TASFrame>();
         private bool recording;
@@ -56,13 +48,11 @@ namespace UltraTAS
         private void Awake()
         {
             tasPath = Path.Combine(Paths.ConfigPath, "ultratas.tas");
-
             Logger.LogInfo("========================================");
             Logger.LogInfo("UltraTAS loaded.");
-            Logger.LogInfo("Recording/playback core initialized.");
-            Logger.LogInfo("F6 = start/stop recording");
-            Logger.LogInfo("F7 = start/stop playback");
-            Logger.LogInfo("F8 = clear recording");
+            Logger.LogInfo("PlayerInput/InputActionState TAS groundwork loaded.");
+            Logger.LogInfo("Tracked actions: " + PlayerInputActions.Length);
+            Logger.LogInfo("F6 = start/stop recording | F7 = playback | F8 = clear");
             Logger.LogInfo("========================================");
         }
 
@@ -70,30 +60,20 @@ namespace UltraTAS
         {
             if (Input.GetKeyDown(KeyCode.F6))
             {
-                if (recording)
-                    StopRecording();
-                else
-                    StartRecording();
+                if (recording) StopRecording();
+                else StartRecording();
             }
 
             if (Input.GetKeyDown(KeyCode.F7))
             {
-                if (playing)
-                    StopPlayback();
-                else
-                    StartPlayback();
+                if (playing) StopPlayback();
+                else StartPlayback();
             }
 
-            if (Input.GetKeyDown(KeyCode.F8))
-            {
-                ClearRecording();
-            }
+            if (Input.GetKeyDown(KeyCode.F8)) ClearRecording();
 
-            if (recording)
-                RecordFrame();
-
-            if (playing)
-                PlayFrame();
+            if (recording) RecordFrame();
+            if (playing) PlayFrame();
         }
 
         private void StartRecording()
@@ -143,18 +123,14 @@ namespace UltraTAS
 
         private void RecordFrame()
         {
-            // Temporary compatibility capture. The actual source of truth will
-            // be ULTRAKILL's PlayerInput/InputActionState once that class is mapped.
-            // Do not remove the TASFrame fields above: they correspond to every
-            // action currently exposed by PlayerInput.
+            // TEMPORARY capture only. The source of truth remains PlayerInput's
+            // InputAction/InputActionState chain. Do not treat these legacy Unity
+            // Input calls as the final TAS implementation.
             TASFrame frame = new TASFrame
             {
-                Move = new Vector2(
-                    Input.GetAxisRaw("Horizontal"),
-                    Input.GetAxisRaw("Vertical")),
+                Move = new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")),
                 Look = Vector2.zero,
                 WheelLook = Vector2.zero,
-
                 Punch = Input.GetMouseButton(0),
                 Hook = Input.GetKey(KeyCode.E),
                 Fire1 = Input.GetMouseButton(0),
@@ -163,20 +139,16 @@ namespace UltraTAS
                 Slide = Input.GetKey(KeyCode.LeftControl),
                 Dodge = Input.GetKey(KeyCode.LeftShift),
                 ChangeFist = Input.GetKey(KeyCode.F),
-
                 NextVariation = Input.GetKey(KeyCode.X),
                 PreviousVariation = Input.GetKey(KeyCode.Z),
                 NextWeapon = Input.GetKey(KeyCode.Q),
-                PrevWeapon = Input.GetKey(KeyCode.Q),
+                PrevWeapon = false,
                 LastWeapon = Input.GetKey(KeyCode.R),
-
-                SelectVariant1 = Input.GetKey(KeyCode.Alpha1),
-                SelectVariant2 = Input.GetKey(KeyCode.Alpha2),
-                SelectVariant3 = Input.GetKey(KeyCode.Alpha3),
-
+                SelectVariant1 = false,
+                SelectVariant2 = false,
+                SelectVariant3 = false,
                 Pause = Input.GetKey(KeyCode.Escape),
                 Stats = Input.GetKey(KeyCode.Tab),
-
                 Slot1 = Input.GetKey(KeyCode.Alpha1),
                 Slot2 = Input.GetKey(KeyCode.Alpha2),
                 Slot3 = Input.GetKey(KeyCode.Alpha3),
@@ -196,9 +168,9 @@ namespace UltraTAS
                 return;
             }
 
-            // Input injection intentionally remains disabled here.
-            // We need PlayerInput's InputActionState implementation before
-            // playback can safely feed values into ULTRAKILL.
+            // Deliberately no fake keyboard/mouse injection here.
+            // Next step: connect recorded values to the actual Input System state
+            // after the remaining InputActionState implementation is mapped.
             playbackFrame++;
         }
 
@@ -217,30 +189,18 @@ namespace UltraTAS
                             frame.Move.x + "," + frame.Move.y + "," +
                             frame.Look.x + "," + frame.Look.y + "," +
                             frame.WheelLook.x + "," + frame.WheelLook.y + "," +
-                            Bool(frame.Punch) + "," +
-                            Bool(frame.Hook) + "," +
-                            Bool(frame.Fire1) + "," +
-                            Bool(frame.Fire2) + "," +
-                            Bool(frame.Jump) + "," +
-                            Bool(frame.Slide) + "," +
-                            Bool(frame.Dodge) + "," +
-                            Bool(frame.ChangeFist) + "," +
-                            Bool(frame.NextVariation) + "," +
-                            Bool(frame.PreviousVariation) + "," +
-                            Bool(frame.NextWeapon) + "," +
-                            Bool(frame.PrevWeapon) + "," +
-                            Bool(frame.LastWeapon) + "," +
-                            Bool(frame.SelectVariant1) + "," +
-                            Bool(frame.SelectVariant2) + "," +
-                            Bool(frame.SelectVariant3) + "," +
-                            Bool(frame.Pause) + "," +
-                            Bool(frame.Stats) + "," +
-                            Bool(frame.Slot1) + "," +
-                            Bool(frame.Slot2) + "," +
-                            Bool(frame.Slot3) + "," +
-                            Bool(frame.Slot4) + "," +
-                            Bool(frame.Slot5) + "," +
-                            Bool(frame.Slot6));
+                            Bool(frame.Punch) + "," + Bool(frame.Hook) + "," +
+                            Bool(frame.Fire1) + "," + Bool(frame.Fire2) + "," +
+                            Bool(frame.Jump) + "," + Bool(frame.Slide) + "," +
+                            Bool(frame.Dodge) + "," + Bool(frame.ChangeFist) + "," +
+                            Bool(frame.NextVariation) + "," + Bool(frame.PreviousVariation) + "," +
+                            Bool(frame.NextWeapon) + "," + Bool(frame.PrevWeapon) + "," +
+                            Bool(frame.LastWeapon) + "," + Bool(frame.SelectVariant1) + "," +
+                            Bool(frame.SelectVariant2) + "," + Bool(frame.SelectVariant3) + "," +
+                            Bool(frame.Pause) + "," + Bool(frame.Stats) + "," +
+                            Bool(frame.Slot1) + "," + Bool(frame.Slot2) + "," +
+                            Bool(frame.Slot3) + "," + Bool(frame.Slot4) + "," +
+                            Bool(frame.Slot5) + "," + Bool(frame.Slot6));
                     }
                 }
 
