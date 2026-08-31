@@ -31,35 +31,59 @@ namespace UltraTAS
             "Slot1", "Slot2", "Slot3", "Slot4", "Slot5", "Slot6"
         };
 
-        // InputActionState findings from ULTRAKILL's Assembly-CSharp.
+        // InputActionState findings recovered from ULTRAKILL's Assembly-CSharp.
+        // InputActionState owns the resolved Input System state and transfers ownership
+        // of InputBindingResolver.memory during Initialize/ClaimDataFrom.
         //
-        // InputActionState is the game's Input System state owner. Important pieces:
-        //   - TriggerState: action phase, timing, magnitude, control, binding and update state.
-        //   - BindingState: binding -> action/control/interaction/processor/composite relationships.
-        //   - ActionMapIndices: ranges into the unmanaged state arrays for each map.
-        //   - UnmanagedMemory: contiguous native allocations containing all of the above.
-        //   - maps / controls / interactions / processors / composites: managed references
-        //     corresponding to the unmanaged state.
+        // Lifecycle recovered:
+        //   Initialize(resolver) -> ClaimDataFrom(resolver) -> AddToGlobalList()
+        //   ClaimDataFrom copies maps, controls, interactions, processors, composites,
+        //   totalProcessorCount and unmanaged memory, then clears resolver.memory and
+        //   calls ComputeControlGroupingIfNecessary().
+        //   Clone() copies managed arrays and deep-clones UnmanagedMemory.
+        //   Dispose()/Destroy() disables maps, clears action/map state references,
+        //   removes the state from the global list, and frees Persistent unmanaged memory.
         //
-        // Recovered lifecycle:
-        //   Initialize(InputBindingResolver resolver)
-        //       -> ClaimDataFrom(resolver)
-        //       -> AddToGlobalList()
+        // UnmanagedMemory is one contiguous native allocation containing:
+        //   TriggerState[], InteractionState[], BindingState[], ActionMapIndices[],
+        //   controlMagnitudes[], compositeMagnitudes[], controlIndexToBindingIndex[],
+        //   controlGroupingAndComplexity[], actionBindingIndicesAndCounts[],
+        //   actionBindingIndices[], enabledControls bitset.
         //
-        //   ClaimDataFrom copies resolver's maps, controls, interactions, processors,
-        //   composites, processor count and unmanaged memory, then clears resolver.memory
-        //   and computes control grouping when needed.
+        // ComputeControlGroupingIfNecessary() assigns grouping IDs and composite
+        // complexity/count information used when registering state-change monitors.
+        // enabledControls is a bitset: controlIndex / 32 selects the word and
+        // 1 << (controlIndex % 32) selects the bit.
         //
-        //   Clone() deep-copies the managed arrays and UnmanagedMemory.Clone().
-        //   Dispose()/Destroy() disables enabled maps, clears InputAction state references,
-        //   removes the state from the global list, then frees unmanaged memory.
+        // Device/binding behavior recovered:
+        //   IsUsingDevice(device) checks explicit map device restrictions first; if any
+        //   map has unrestricted devices it falls back to the resolved controls' devices.
+        //   CanUseDevice(device) similarly checks explicit restrictions, then searches
+        //   every binding's effectivePath with InputControlPath.TryFindControl().
+        //   HasEnabledActions() simply checks each map's enabled flag.
         //
-        // ComputeControlGroupingIfNecessary() builds controlGroupingAndComplexity from
-        // controlIndexToBindingIndex and BindingState composite information. This matters
-        // for faithfully reproducing how the real Input System resolves simultaneous input.
+        // Binding re-resolution:
+        //   PrepareForBindingReResolution() disables enabled maps/actions and, for a
+        //   partial resolve, preserves active controls/interactions where still valid.
+        //   FinishBindingResolution() finishes composite setup and restores action,
+        //   binding, control magnitude and interaction state as appropriate.
         //
-        // Future TAS playback should operate through this existing Input System state /
-        // event chain rather than OS-level keyboard injection or a replacement input manager.
+        // Action reset/enable/disable behavior recovered:
+        //   ResetActionState() cancels active interactions/actions, returns the action
+        //   to Waiting/Disabled, clears active control/binding/interaction state and
+        //   optionally clears per-update flags on hard reset.
+        //   EnableAllActions()/EnableSingleAction() enable controls, set action phases,
+        //   update enabled-action counts and notify listeners.
+        //   DisableAllActions()/DisableSingleAction() disable controls, reset actions,
+        //   update enabled-action counts and notify listeners.
+        //   EnableControls()/DisableControls() call InputManager.AddStateChangeMonitor /
+        //   RemoveStateChangeMonitor using the combined map/control/binding monitor ID.
+        //   Initial-state-check flags are propagated to composite parents when needed.
+        //
+        // IMPORTANT FOR TAS IMPLEMENTATION:
+        // Playback should ultimately feed the game's existing Unity Input System state/
+        // event path rather than OS-level keyboard injection or a replacement manager.
+        // The recovered state layout gives us the internal structures needed to do that.
         private static readonly string[] InputActionStateComponents =
         {
             "TriggerState.phase", "TriggerState.time", "TriggerState.startTime",
@@ -73,7 +97,8 @@ namespace UltraTAS
             "BindingState.processorStartIndex", "BindingState.processorCount",
             "BindingState.actionIndex", "BindingState.mapIndex",
             "BindingState.compositeOrCompositeBindingIndex", "BindingState.pressTime",
-            "BindingState.flags", "ActionMapIndices ranges", "UnmanagedMemory arrays"
+            "BindingState.flags", "ActionMapIndices ranges", "UnmanagedMemory arrays",
+            "enabledControls bitset", "controlGroupingAndComplexity"
         };
 
         private readonly List<TASFrame> frames = new List<TASFrame>();
@@ -206,8 +231,8 @@ namespace UltraTAS
             }
 
             // Deliberately no fake keyboard/mouse injection yet.
-            // The next implementation stage is to feed the game's existing Input System
-            // event/state path using the recovered InputActionState architecture.
+            // Next stage: resolve the game's PlayerInput/InputActionState and feed the
+            // native Input System event/state path at deterministic frame boundaries.
             playbackFrame++;
         }
 
