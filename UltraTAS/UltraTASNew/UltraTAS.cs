@@ -1,6 +1,8 @@
 using BepInEx;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.LowLevel;
+using UnityEngine.InputSystem.Controls;
 using System.Collections.Generic;
 using System.IO;
 
@@ -80,40 +82,45 @@ namespace UltraTAS
         //   RemoveStateChangeMonitor using the combined map/control/binding monitor ID.
         //   Initial-state-check flags are propagated to composite parents when needed.
         //
-        // ADDITIONAL INPUTACTIONSTATE FINDINGS FROM THE NEXT ASSEMBLY-CSharp CHUNK:
-        //   StartTimeout(seconds, trigger) schedules an InputManager state-change timeout
-        //   at trigger.time + seconds for the trigger's control/binding/interaction.
-        //   StopTimeout() removes that monitor and updates the interaction's accumulated
-        //   timeout bookkeeping. ProcessTimeout() marks the timer expired and calls the
-        //   interaction's Process(ref context) with timerHasExpired = true.
-        //   ChangePhaseOfInteraction() is the bridge from an interaction to its action:
-        //   it updates interaction state, stops active timers, then propagates Started /
-        //   Performed / Canceled to ChangePhaseOfAction(). On Performed it can reset the
-        //   other interactions on the same binding; on Canceled it can advance to the
-        //   next active interaction. This is important for reproducing the game's exact
-        //   action semantics instead of merely setting booleans.
-        //   ChangePhaseOfActionInternal() copies the trigger into action state and invokes
-        //   the actual InputAction listeners for Started/Performed/Canceled. It also
-        //   records the InputUpdate step in lastPerformedInUpdate/lastCanceledInUpdate
-        //   and preserves pressed/released flags and magnitude.
-        //   ReadValue() does NOT just read a raw control: composite bindings are evaluated
-        //   through InputBindingCompositeContext, then binding processors are applied.
-        //   ReadValue<T>() performs the same process for typed values, while
-        //   ReadValueAsObject() does it through the object processor path.
-        //   IsActuated() uses trigger.magnitude (or treats negative magnitude as actuated)
-        //   and compares it against the supplied threshold. ReadValueAsButton() uses the
-        //   control's pressPointOrDefault when available, otherwise the global default.
-        //   Composite part evaluation chooses the strongest matching control by magnitude
-        //   and can inspect pressTime, which matters for deterministic composite inputs.
-        //   Global InputActionState instances are tracked through weak GCHandles in the
-        //   global list. OnDeviceChange() can reset states, remove devices and trigger
-        //   binding resolution depending on the device-change type. DeferredResolutionOfBindings()
-        //   resolves every live action map while binding resolution is deferred.
+        // Interaction/action processing recovered:
+        //   StartTimeout() schedules an InputManager state-change timeout at trigger.time
+        //   + seconds. StopTimeout() removes it and updates timeout bookkeeping.
+        //   ProcessTimeout() marks a timer expired and calls the interaction Process().
+        //   ChangePhaseOfInteraction() is the bridge from an interaction to its action;
+        //   it stops timers and propagates Started/Performed/Canceled to the action.
+        //   ChangePhaseOfActionInternal() copies the trigger into action state, invokes
+        //   listeners, records update-step performed/canceled flags and preserves
+        //   pressed/released state and magnitude.
         //
-        // IMPORTANT FOR TAS IMPLEMENTATION:
-        // Playback should ultimately feed the game's existing Unity Input System state/
-        // event path rather than OS-level keyboard injection or a replacement manager.
-        // The recovered state layout gives us the internal structures needed to do that.
+        // Value-reading behavior recovered:
+        //   ReadValue() evaluates composites through InputBindingCompositeContext, then
+        //   applies binding processors. ReadValue<T>() does the same for typed values.
+        //   ReadValueAsObject() uses the object processor path. IsActuated() checks
+        //   trigger.magnitude against a threshold. ReadValueAsButton() uses the control's
+        //   pressPointOrDefault or ButtonControl's global default.
+        //   Composite part reads choose the strongest matching control by magnitude and
+        //   can inspect pressTime, which matters for deterministic input recording.
+        //
+        // Global/device behavior recovered:
+        //   InputActionState instances are tracked by weak GCHandles. OnDeviceChange()
+        //   can remove devices, reset action state, and request binding re-resolution.
+        //   DeferredResolutionOfBindings() resolves all live maps while resolution is
+        //   deferred. SaveAndResetState()/ResetGlobals() destroys the tracked states and
+        //   clears global callbacks.
+        //
+        // IMPORTANT TAS FINDING:
+        //   InputState.Change(control, value) is the low-level state-write path exposed
+        //   by UnityEngine.InputSystem.LowLevel.InputState. The recovered implementation
+        //   validates the control's state block, calculates the device-relative byte
+        //   offset, and calls InputSystem.s_Manager.UpdateState(...). This means TAS
+        //   playback can write an already-resolved game's InputControl directly instead
+        //   of faking OS keyboard/mouse events. The exact PlayerInput/InputActionState
+        //   instance and controls still need to be resolved in ULTRAKILL at runtime.
+        //
+        // IMPORTANT:
+        //   InputState.Change is NOT the same thing as simply changing InputActionState
+        //   fields. The normal Input System state path must run so monitors, magnitudes,
+        //   interactions, composites and action phases are updated normally.
         private static readonly string[] InputActionStateComponents =
         {
             "TriggerState.phase", "TriggerState.time", "TriggerState.startTime",
@@ -136,6 +143,11 @@ namespace UltraTAS
         private bool playing;
         private int playbackFrame;
         private string tasPath;
+
+        // Resolved at runtime. We intentionally do not construct a replacement
+        // InputActionState; ULTRAKILL's existing state is what must receive TAS input.
+        private PlayerInput playerInput;
+        private readonly Dictionary<string, InputAction> resolvedActions = new Dictionary<string, InputAction>();
 
         private void Awake()
         {
@@ -168,12 +180,43 @@ namespace UltraTAS
             if (playing) PlayFrame();
         }
 
+        private bool ResolvePlayerInput()
+        {
+            if (playerInput == null)
+            {
+                playerInput = FindObjectOfType<PlayerInput>();
+                if (playerInput == null)
+                {
+                    Logger.LogWarning("UltraTAS: no PlayerInput component found yet.");
+                    return false;
+                }
+            }
+
+            resolvedActions.Clear();
+            if (playerInput.actions == null)
+            {
+                Logger.LogWarning("UltraTAS: PlayerInput has no InputActionAsset.");
+                return false;
+            }
+
+            foreach (string actionName in PlayerInputActions)
+            {
+                InputAction action = playerInput.actions.FindAction(actionName, false);
+                if (action != null)
+                    resolvedActions[actionName] = action;
+            }
+
+            Logger.LogInfo("UltraTAS: resolved " + resolvedActions.Count + "/" + PlayerInputActions.Length + " PlayerInput actions.");
+            return resolvedActions.Count > 0;
+        }
+
         private void StartRecording()
         {
             playing = false;
             frames.Clear();
-            recording = true;
             playbackFrame = 0;
+            ResolvePlayerInput();
+            recording = true;
             Logger.LogInfo("TAS recording started.");
         }
 
@@ -193,6 +236,12 @@ namespace UltraTAS
             }
 
             recording = false;
+            if (!ResolvePlayerInput())
+            {
+                Logger.LogWarning("Cannot start playback: PlayerInput actions could not be resolved.");
+                return;
+            }
+
             playing = true;
             playbackFrame = 0;
             Logger.LogInfo("TAS playback started. Frames: " + frames.Count);
@@ -215,9 +264,8 @@ namespace UltraTAS
 
         private void RecordFrame()
         {
-            // Temporary capture only. We are deliberately retaining this until the
-            // remaining InputActionState/InputEvent path has been mapped. It is NOT the
-            // intended final recorder source.
+            // Temporary capture only. The legacy UnityEngine.Input API is retained as a
+            // fallback while the exact PlayerInput control mapping is being resolved.
             TASFrame frame = new TASFrame
             {
                 Move = new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")),
@@ -260,10 +308,79 @@ namespace UltraTAS
                 return;
             }
 
-            // Deliberately no fake keyboard/mouse injection yet.
-            // Next stage: resolve the game's PlayerInput/InputActionState and feed the
-            // native Input System event/state path at deterministic frame boundaries.
+            TASFrame frame = frames[playbackFrame];
+
+            // This is the first actual bridge toward native Input System playback.
+            // We only write controls that have been resolved from ULTRAKILL's own
+            // PlayerInput. No OS-level key/mouse injection is used.
+            SetVector2Action("Move", frame.Move);
+            SetVector2Action("Look", frame.Look);
+            SetVector2Action("WheelLook", frame.WheelLook);
+            SetButtonAction("Punch", frame.Punch);
+            SetButtonAction("Hook", frame.Hook);
+            SetButtonAction("Fire1", frame.Fire1);
+            SetButtonAction("Fire2", frame.Fire2);
+            SetButtonAction("Jump", frame.Jump);
+            SetButtonAction("Slide", frame.Slide);
+            SetButtonAction("Dodge", frame.Dodge);
+            SetButtonAction("ChangeFist", frame.ChangeFist);
+            SetButtonAction("NextVariation", frame.NextVariation);
+            SetButtonAction("PreviousVariation", frame.PreviousVariation);
+            SetButtonAction("NextWeapon", frame.NextWeapon);
+            SetButtonAction("PrevWeapon", frame.PrevWeapon);
+            SetButtonAction("LastWeapon", frame.LastWeapon);
+            SetButtonAction("SelectVariant1", frame.SelectVariant1);
+            SetButtonAction("SelectVariant2", frame.SelectVariant2);
+            SetButtonAction("SelectVariant3", frame.SelectVariant3);
+            SetButtonAction("Pause", frame.Pause);
+            SetButtonAction("Stats", frame.Stats);
+            SetButtonAction("Slot1", frame.Slot1);
+            SetButtonAction("Slot2", frame.Slot2);
+            SetButtonAction("Slot3", frame.Slot3);
+            SetButtonAction("Slot4", frame.Slot4);
+            SetButtonAction("Slot5", frame.Slot5);
+            SetButtonAction("Slot6", frame.Slot6);
+
             playbackFrame++;
+        }
+
+        private void SetVector2Action(string actionName, Vector2 value)
+        {
+            InputAction action;
+            if (!resolvedActions.TryGetValue(actionName, out action)) return;
+
+            foreach (InputControl control in action.controls)
+            {
+                Vector2Control vector2 = control as Vector2Control;
+                if (vector2 != null)
+                {
+                    InputState.Change(vector2, value);
+                    return;
+                }
+            }
+        }
+
+        private void SetButtonAction(string actionName, bool pressed)
+        {
+            InputAction action;
+            if (!resolvedActions.TryGetValue(actionName, out action)) return;
+
+            foreach (InputControl control in action.controls)
+            {
+                ButtonControl button = control as ButtonControl;
+                if (button != null)
+                {
+                    InputState.Change(button, pressed ? 1f : 0f);
+                    return;
+                }
+
+                InputControl<float> floatControl = control as InputControl<float>;
+                if (floatControl != null)
+                {
+                    InputState.Change(floatControl, pressed ? 1f : 0f);
+                    return;
+                }
+            }
         }
 
         private void SaveRecording()
