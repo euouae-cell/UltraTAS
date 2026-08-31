@@ -80,6 +80,36 @@ namespace UltraTAS
         //   RemoveStateChangeMonitor using the combined map/control/binding monitor ID.
         //   Initial-state-check flags are propagated to composite parents when needed.
         //
+        // ADDITIONAL INPUTACTIONSTATE FINDINGS FROM THE NEXT ASSEMBLY-CSharp CHUNK:
+        //   StartTimeout(seconds, trigger) schedules an InputManager state-change timeout
+        //   at trigger.time + seconds for the trigger's control/binding/interaction.
+        //   StopTimeout() removes that monitor and updates the interaction's accumulated
+        //   timeout bookkeeping. ProcessTimeout() marks the timer expired and calls the
+        //   interaction's Process(ref context) with timerHasExpired = true.
+        //   ChangePhaseOfInteraction() is the bridge from an interaction to its action:
+        //   it updates interaction state, stops active timers, then propagates Started /
+        //   Performed / Canceled to ChangePhaseOfAction(). On Performed it can reset the
+        //   other interactions on the same binding; on Canceled it can advance to the
+        //   next active interaction. This is important for reproducing the game's exact
+        //   action semantics instead of merely setting booleans.
+        //   ChangePhaseOfActionInternal() copies the trigger into action state and invokes
+        //   the actual InputAction listeners for Started/Performed/Canceled. It also
+        //   records the InputUpdate step in lastPerformedInUpdate/lastCanceledInUpdate
+        //   and preserves pressed/released flags and magnitude.
+        //   ReadValue() does NOT just read a raw control: composite bindings are evaluated
+        //   through InputBindingCompositeContext, then binding processors are applied.
+        //   ReadValue<T>() performs the same process for typed values, while
+        //   ReadValueAsObject() does it through the object processor path.
+        //   IsActuated() uses trigger.magnitude (or treats negative magnitude as actuated)
+        //   and compares it against the supplied threshold. ReadValueAsButton() uses the
+        //   control's pressPointOrDefault when available, otherwise the global default.
+        //   Composite part evaluation chooses the strongest matching control by magnitude
+        //   and can inspect pressTime, which matters for deterministic composite inputs.
+        //   Global InputActionState instances are tracked through weak GCHandles in the
+        //   global list. OnDeviceChange() can reset states, remove devices and trigger
+        //   binding resolution depending on the device-change type. DeferredResolutionOfBindings()
+        //   resolves every live action map while binding resolution is deferred.
+        //
         // IMPORTANT FOR TAS IMPLEMENTATION:
         // Playback should ultimately feed the game's existing Unity Input System state/
         // event path rather than OS-level keyboard injection or a replacement manager.
