@@ -3,15 +3,17 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
 using UnityEngine.InputSystem.Controls;
+using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 
 namespace UltraTAS
 {
-    [BepInPlugin("OWATAMSATE.UltraTAS", "UltraTAS", "1.0.0")]
+    [BepInPlugin("OWATAMSATE.UltraTAS", "UltraTAS", "1.1.0")]
     public class UltraTAS : BaseUnityPlugin
     {
-        private class TASFrame
+        private sealed class TASFrame
         {
             public Vector2 Move;
             public Vector2 Look;
@@ -23,7 +25,6 @@ namespace UltraTAS
             public bool Slot1, Slot2, Slot3, Slot4, Slot5, Slot6;
         }
 
-        // ULTRAKILL PlayerInput actions recovered from Assembly-CSharp.
         private static readonly string[] PlayerInputActions =
         {
             "Move", "Look", "WheelLook", "Punch", "Hook", "Fire1", "Fire2",
@@ -33,131 +34,68 @@ namespace UltraTAS
             "Slot1", "Slot2", "Slot3", "Slot4", "Slot5", "Slot6"
         };
 
-        // InputActionState findings recovered from ULTRAKILL's Assembly-CSharp.
-        // InputActionState owns the resolved Input System state and transfers ownership
-        // of InputBindingResolver.memory during Initialize/ClaimDataFrom.
+        // Recovered Unity Input System findings:
+        // InputActionState is the live resolved state for maps, controls, composites,
+        // interactions, processors and action phases. TAS should feed that existing state.
+        // InputState.Change(control, value) reaches InputSystem.s_Manager.UpdateState()
+        // using the control's device-relative state offset, avoiding OS-level injection.
+        // ReadValue<T>() evaluates composites and applies binding processors.
+        // Composite part evaluation chooses the strongest matching control by magnitude.
+        // InputActionState registers state-change monitors for enabled controls.
+        // Interaction timers and phase changes belong to the normal action pipeline.
+        // Do not directly edit TriggerState to fake Started/Performed/Canceled.
         //
-        // Lifecycle recovered:
-        //   Initialize(resolver) -> ClaimDataFrom(resolver) -> AddToGlobalList()
-        //   ClaimDataFrom copies maps, controls, interactions, processors, composites,
-        //   totalProcessorCount and unmanaged memory, then clears resolver.memory and
-        //   calls ComputeControlGroupingIfNecessary().
-        //   Clone() copies managed arrays and deep-clones UnmanagedMemory.
-        //   Dispose()/Destroy() disables maps, clears action/map state references,
-        //   removes the state from the global list, and frees Persistent unmanaged memory.
-        //
-        // UnmanagedMemory is one contiguous native allocation containing:
-        //   TriggerState[], InteractionState[], BindingState[], ActionMapIndices[],
-        //   controlMagnitudes[], compositeMagnitudes[], controlIndexToBindingIndex[],
-        //   controlGroupingAndComplexity[], actionBindingIndicesAndCounts[],
-        //   actionBindingIndices[], enabledControls bitset.
-        //
-        // ComputeControlGroupingIfNecessary() assigns grouping IDs and composite
-        // complexity/count information used when registering state-change monitors.
-        // enabledControls is a bitset: controlIndex / 32 selects the word and
-        // 1 << (controlIndex % 32) selects the bit.
-        //
-        // Device/binding behavior recovered:
-        //   IsUsingDevice(device) checks explicit map device restrictions first; if any
-        //   map has unrestricted devices it falls back to the resolved controls' devices.
-        //   CanUseDevice(device) similarly checks explicit restrictions, then searches
-        //   every binding's effectivePath with InputControlPath.TryFindControl().
-        //   HasEnabledActions() simply checks each map's enabled flag.
-        //
-        // Binding re-resolution:
-        //   PrepareForBindingReResolution() disables enabled maps/actions and, for a
-        //   partial resolve, preserves active controls/interactions where still valid.
-        //   FinishBindingResolution() finishes composite setup and restores action,
-        //   binding, control magnitude and interaction state as appropriate.
-        //
-        // Action reset/enable/disable behavior recovered:
-        //   ResetActionState() cancels active interactions/actions, returns the action
-        //   to Waiting/Disabled, clears active control/binding/interaction state and
-        //   optionally clears per-update flags on hard reset.
-        //   EnableAllActions()/EnableSingleAction() enable controls, set action phases,
-        //   update enabled-action counts and notify listeners.
-        //   DisableAllActions()/DisableSingleAction() disable controls, reset actions,
-        //   update enabled-action counts and notify listeners.
-        //   EnableControls()/DisableControls() call InputManager.AddStateChangeMonitor /
-        //   RemoveStateChangeMonitor using the combined map/control/binding monitor ID.
-        //   Initial-state-check flags are propagated to composite parents when needed.
-        //
-        // Interaction/action processing recovered:
-        //   StartTimeout() schedules an InputManager state-change timeout at trigger.time
-        //   + seconds. StopTimeout() removes it and updates timeout bookkeeping.
-        //   ProcessTimeout() marks a timer expired and calls the interaction Process().
-        //   ChangePhaseOfInteraction() is the bridge from an interaction to its action;
-        //   it stops timers and propagates Started/Performed/Canceled to the action.
-        //   ChangePhaseOfActionInternal() copies the trigger into action state, invokes
-        //   listeners, records update-step performed/canceled flags and preserves
-        //   pressed/released state and magnitude.
-        //
-        // Value-reading behavior recovered:
-        //   ReadValue() evaluates composites through InputBindingCompositeContext, then
-        //   applies binding processors. ReadValue<T>() does the same for typed values.
-        //   ReadValueAsObject() uses the object processor path. IsActuated() checks
-        //   trigger.magnitude against a threshold. ReadValueAsButton() uses the control's
-        //   pressPointOrDefault or ButtonControl's global default.
-        //   Composite part reads choose the strongest matching control by magnitude and
-        //   can inspect pressTime, which matters for deterministic input recording.
-        //
-        // Global/device behavior recovered:
-        //   InputActionState instances are tracked by weak GCHandles. OnDeviceChange()
-        //   can remove devices, reset action state, and request binding re-resolution.
-        //   DeferredResolutionOfBindings() resolves all live maps while resolution is
-        //   deferred. SaveAndResetState()/ResetGlobals() destroys the tracked states and
-        //   clears global callbacks.
-        //
-        // IMPORTANT TAS FINDING:
-        //   InputState.Change(control, value) is the low-level state-write path exposed
-        //   by UnityEngine.InputSystem.LowLevel.InputState. The recovered implementation
-        //   validates the control's state block, calculates the device-relative byte
-        //   offset, and calls InputSystem.s_Manager.UpdateState(...). This means TAS
-        //   playback can write an already-resolved game's InputControl directly instead
-        //   of faking OS keyboard/mouse events. The exact PlayerInput/InputActionState
-        //   instance and controls still need to be resolved in ULTRAKILL at runtime.
-        //
-        // IMPORTANT:
-        //   InputState.Change is NOT the same thing as simply changing InputActionState
-        //   fields. The normal Input System state path must run so monitors, magnitudes,
-        //   interactions, composites and action phases are updated normally.
-        private static readonly string[] InputActionStateComponents =
-        {
-            "TriggerState.phase", "TriggerState.time", "TriggerState.startTime",
-            "TriggerState.magnitude", "TriggerState.mapIndex", "TriggerState.controlIndex",
-            "TriggerState.bindingIndex", "TriggerState.interactionIndex",
-            "TriggerState.lastPerformedInUpdate", "TriggerState.lastCanceledInUpdate",
-            "TriggerState.pressedInUpdate", "TriggerState.releasedInUpdate",
-            "TriggerState.isPassThrough", "TriggerState.isButton", "TriggerState.isPressed",
-            "BindingState.controlStartIndex", "BindingState.controlCount",
-            "BindingState.interactionStartIndex", "BindingState.interactionCount",
-            "BindingState.processorStartIndex", "BindingState.processorCount",
-            "BindingState.actionIndex", "BindingState.mapIndex",
-            "BindingState.compositeOrCompositeBindingIndex", "BindingState.pressTime",
-            "BindingState.flags", "ActionMapIndices ranges", "UnmanagedMemory arrays",
-            "enabledControls bitset", "controlGroupingAndComplexity"
-        };
+        // Recovered GroundCheck findings:
+        // UpdateState() is frame-driven. onGround follows touchingGround unless forced off.
+        // superJumpChance, extraJumpChance and bounceChance are Time.deltaTime windows.
+        // Bounce checks InputSource.Jump.IsPressed, so Jump must reach the real input path.
+        // These fields are useful later for TAS state verification; TAS must not write them.
 
         private readonly List<TASFrame> frames = new List<TASFrame>();
+        private readonly Dictionary<string, InputAction> resolvedActions = new Dictionary<string, InputAction>();
         private bool recording;
         private bool playing;
         private int playbackFrame;
         private string tasPath;
-
-        // Resolved at runtime. We intentionally do not construct a replacement
-        // InputActionState; ULTRAKILL's existing state is what must receive TAS input.
         private PlayerInput playerInput;
-        private readonly Dictionary<string, InputAction> resolvedActions = new Dictionary<string, InputAction>();
 
         private void Awake()
         {
             tasPath = Path.Combine(Paths.ConfigPath, "ultratas.tas");
+            InputSystem.onBeforeUpdate += OnBeforeInputUpdate;
+            InputSystem.onAfterUpdate += OnAfterInputUpdate;
+
             Logger.LogInfo("========================================");
-            Logger.LogInfo("UltraTAS loaded.");
-            Logger.LogInfo("PlayerInput/InputActionState TAS groundwork loaded.");
-            Logger.LogInfo("Tracked actions: " + PlayerInputActions.Length);
+            Logger.LogInfo("UltraTAS 1.1.0 loaded.");
+            Logger.LogInfo("Native Unity Input System TAS bridge enabled.");
             Logger.LogInfo("F6 = start/stop recording | F7 = playback | F8 = clear");
             Logger.LogInfo("========================================");
+        }
+
+        private void OnDestroy()
+        {
+            InputSystem.onBeforeUpdate -= OnBeforeInputUpdate;
+            InputSystem.onAfterUpdate -= OnAfterInputUpdate;
+        }
+
+        // Playback is injected before the Input System processes the update. This is much
+        // closer to the game's real InputActionState timing than writing from MonoBehaviour.Update.
+        private void OnBeforeInputUpdate(InputUpdateType updateType)
+        {
+            if (!playing || updateType == InputUpdateType.None)
+                return;
+
+            PlayFrame();
+        }
+
+        // Recording happens after the Input System update, so ReadValue() sees the same
+        // resolved composite/processor state that gameplay sees.
+        private void OnAfterInputUpdate(InputUpdateType updateType)
+        {
+            if (!recording || updateType == InputUpdateType.None)
+                return;
+
+            RecordFrame();
         }
 
         private void Update()
@@ -174,48 +112,49 @@ namespace UltraTAS
                 else StartPlayback();
             }
 
-            if (Input.GetKeyDown(KeyCode.F8)) ClearRecording();
-
-            if (recording) RecordFrame();
-            if (playing) PlayFrame();
+            if (Input.GetKeyDown(KeyCode.F8))
+                ClearRecording();
         }
 
         private bool ResolvePlayerInput()
         {
+            if (playerInput == null || playerInput.gameObject == null)
+                playerInput = FindObjectOfType<PlayerInput>();
+
             if (playerInput == null)
             {
-                playerInput = FindObjectOfType<PlayerInput>();
-                if (playerInput == null)
-                {
-                    Logger.LogWarning("UltraTAS: no PlayerInput component found yet.");
-                    return false;
-                }
+                Logger.LogWarning("UltraTAS: no PlayerInput component found.");
+                return false;
             }
 
-            resolvedActions.Clear();
             if (playerInput.actions == null)
             {
                 Logger.LogWarning("UltraTAS: PlayerInput has no InputActionAsset.");
                 return false;
             }
 
+            resolvedActions.Clear();
             foreach (string actionName in PlayerInputActions)
             {
                 InputAction action = playerInput.actions.FindAction(actionName, false);
                 if (action != null)
                     resolvedActions[actionName] = action;
+                else
+                    Logger.LogWarning("UltraTAS: action not found: " + actionName);
             }
 
-            Logger.LogInfo("UltraTAS: resolved " + resolvedActions.Count + "/" + PlayerInputActions.Length + " PlayerInput actions.");
+            Logger.LogInfo("UltraTAS: resolved " + resolvedActions.Count + "/" + PlayerInputActions.Length + " actions.");
             return resolvedActions.Count > 0;
         }
 
         private void StartRecording()
         {
+            if (!ResolvePlayerInput())
+                return;
+
             playing = false;
             frames.Clear();
             playbackFrame = 0;
-            ResolvePlayerInput();
             recording = true;
             Logger.LogInfo("TAS recording started.");
         }
@@ -235,13 +174,10 @@ namespace UltraTAS
                 return;
             }
 
-            recording = false;
             if (!ResolvePlayerInput())
-            {
-                Logger.LogWarning("Cannot start playback: PlayerInput actions could not be resolved.");
                 return;
-            }
 
+            recording = false;
             playing = true;
             playbackFrame = 0;
             Logger.LogInfo("TAS playback started. Frames: " + frames.Count);
@@ -264,40 +200,59 @@ namespace UltraTAS
 
         private void RecordFrame()
         {
-            // Temporary capture only. The legacy UnityEngine.Input API is retained as a
-            // fallback while the exact PlayerInput control mapping is being resolved.
+            if (resolvedActions.Count == 0)
+                return;
+
             TASFrame frame = new TASFrame
             {
-                Move = new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical")),
-                Look = Vector2.zero,
-                WheelLook = Vector2.zero,
-                Punch = Input.GetMouseButton(0),
-                Hook = Input.GetKey(KeyCode.E),
-                Fire1 = Input.GetMouseButton(0),
-                Fire2 = Input.GetMouseButton(1),
-                Jump = Input.GetKey(KeyCode.Space),
-                Slide = Input.GetKey(KeyCode.LeftControl),
-                Dodge = Input.GetKey(KeyCode.LeftShift),
-                ChangeFist = Input.GetKey(KeyCode.F),
-                NextVariation = Input.GetKey(KeyCode.X),
-                PreviousVariation = Input.GetKey(KeyCode.Z),
-                NextWeapon = Input.GetKey(KeyCode.Q),
-                PrevWeapon = false,
-                LastWeapon = Input.GetKey(KeyCode.R),
-                SelectVariant1 = false,
-                SelectVariant2 = false,
-                SelectVariant3 = false,
-                Pause = Input.GetKey(KeyCode.Escape),
-                Stats = Input.GetKey(KeyCode.Tab),
-                Slot1 = Input.GetKey(KeyCode.Alpha1),
-                Slot2 = Input.GetKey(KeyCode.Alpha2),
-                Slot3 = Input.GetKey(KeyCode.Alpha3),
-                Slot4 = Input.GetKey(KeyCode.Alpha4),
-                Slot5 = Input.GetKey(KeyCode.Alpha5),
-                Slot6 = Input.GetKey(KeyCode.Alpha6)
+                Move = ReadVector2("Move"),
+                Look = ReadVector2("Look"),
+                WheelLook = ReadVector2("WheelLook"),
+                Punch = ReadButton("Punch"),
+                Hook = ReadButton("Hook"),
+                Fire1 = ReadButton("Fire1"),
+                Fire2 = ReadButton("Fire2"),
+                Jump = ReadButton("Jump"),
+                Slide = ReadButton("Slide"),
+                Dodge = ReadButton("Dodge"),
+                ChangeFist = ReadButton("ChangeFist"),
+                NextVariation = ReadButton("NextVariation"),
+                PreviousVariation = ReadButton("PreviousVariation"),
+                NextWeapon = ReadButton("NextWeapon"),
+                PrevWeapon = ReadButton("PrevWeapon"),
+                LastWeapon = ReadButton("LastWeapon"),
+                SelectVariant1 = ReadButton("SelectVariant1"),
+                SelectVariant2 = ReadButton("SelectVariant2"),
+                SelectVariant3 = ReadButton("SelectVariant3"),
+                Pause = ReadButton("Pause"),
+                Stats = ReadButton("Stats"),
+                Slot1 = ReadButton("Slot1"),
+                Slot2 = ReadButton("Slot2"),
+                Slot3 = ReadButton("Slot3"),
+                Slot4 = ReadButton("Slot4"),
+                Slot5 = ReadButton("Slot5"),
+                Slot6 = ReadButton("Slot6")
             };
 
             frames.Add(frame);
+        }
+
+        private Vector2 ReadVector2(string actionName)
+        {
+            InputAction action;
+            if (!resolvedActions.TryGetValue(actionName, out action) || action.valueType != typeof(Vector2))
+                return Vector2.zero;
+
+            return action.ReadValue<Vector2>();
+        }
+
+        private bool ReadButton(string actionName)
+        {
+            InputAction action;
+            if (!resolvedActions.TryGetValue(actionName, out action))
+                return false;
+
+            return action.IsPressed();
         }
 
         private void PlayFrame()
@@ -309,45 +264,42 @@ namespace UltraTAS
             }
 
             TASFrame frame = frames[playbackFrame];
-
-            // This is the first actual bridge toward native Input System playback.
-            // We only write controls that have been resolved from ULTRAKILL's own
-            // PlayerInput. No OS-level key/mouse injection is used.
-            SetVector2Action("Move", frame.Move);
-            SetVector2Action("Look", frame.Look);
-            SetVector2Action("WheelLook", frame.WheelLook);
-            SetButtonAction("Punch", frame.Punch);
-            SetButtonAction("Hook", frame.Hook);
-            SetButtonAction("Fire1", frame.Fire1);
-            SetButtonAction("Fire2", frame.Fire2);
-            SetButtonAction("Jump", frame.Jump);
-            SetButtonAction("Slide", frame.Slide);
-            SetButtonAction("Dodge", frame.Dodge);
-            SetButtonAction("ChangeFist", frame.ChangeFist);
-            SetButtonAction("NextVariation", frame.NextVariation);
-            SetButtonAction("PreviousVariation", frame.PreviousVariation);
-            SetButtonAction("NextWeapon", frame.NextWeapon);
-            SetButtonAction("PrevWeapon", frame.PrevWeapon);
-            SetButtonAction("LastWeapon", frame.LastWeapon);
-            SetButtonAction("SelectVariant1", frame.SelectVariant1);
-            SetButtonAction("SelectVariant2", frame.SelectVariant2);
-            SetButtonAction("SelectVariant3", frame.SelectVariant3);
-            SetButtonAction("Pause", frame.Pause);
-            SetButtonAction("Stats", frame.Stats);
-            SetButtonAction("Slot1", frame.Slot1);
-            SetButtonAction("Slot2", frame.Slot2);
-            SetButtonAction("Slot3", frame.Slot3);
-            SetButtonAction("Slot4", frame.Slot4);
-            SetButtonAction("Slot5", frame.Slot5);
-            SetButtonAction("Slot6", frame.Slot6);
+            WriteVector2("Move", frame.Move);
+            WriteVector2("Look", frame.Look);
+            WriteVector2("WheelLook", frame.WheelLook);
+            WriteButton("Punch", frame.Punch);
+            WriteButton("Hook", frame.Hook);
+            WriteButton("Fire1", frame.Fire1);
+            WriteButton("Fire2", frame.Fire2);
+            WriteButton("Jump", frame.Jump);
+            WriteButton("Slide", frame.Slide);
+            WriteButton("Dodge", frame.Dodge);
+            WriteButton("ChangeFist", frame.ChangeFist);
+            WriteButton("NextVariation", frame.NextVariation);
+            WriteButton("PreviousVariation", frame.PreviousVariation);
+            WriteButton("NextWeapon", frame.NextWeapon);
+            WriteButton("PrevWeapon", frame.PrevWeapon);
+            WriteButton("LastWeapon", frame.LastWeapon);
+            WriteButton("SelectVariant1", frame.SelectVariant1);
+            WriteButton("SelectVariant2", frame.SelectVariant2);
+            WriteButton("SelectVariant3", frame.SelectVariant3);
+            WriteButton("Pause", frame.Pause);
+            WriteButton("Stats", frame.Stats);
+            WriteButton("Slot1", frame.Slot1);
+            WriteButton("Slot2", frame.Slot2);
+            WriteButton("Slot3", frame.Slot3);
+            WriteButton("Slot4", frame.Slot4);
+            WriteButton("Slot5", frame.Slot5);
+            WriteButton("Slot6", frame.Slot6);
 
             playbackFrame++;
         }
 
-        private void SetVector2Action(string actionName, Vector2 value)
+        private void WriteVector2(string actionName, Vector2 value)
         {
             InputAction action;
-            if (!resolvedActions.TryGetValue(actionName, out action)) return;
+            if (!resolvedActions.TryGetValue(actionName, out action))
+                return;
 
             foreach (InputControl control in action.controls)
             {
@@ -358,26 +310,54 @@ namespace UltraTAS
                     return;
                 }
             }
+
+            // A 2D Vector2 composite exposes button/axis parts instead of a Vector2Control.
+            // Write those parts through InputState.Change so InputActionState evaluates the
+            // composite normally on the input update.
+            bool wroteComposite = false;
+            foreach (InputControl control in action.controls)
+            {
+                string path = control.path.ToLowerInvariant();
+                float amount;
+
+                if (path.EndsWith("/w") || path.EndsWith("/up")) amount = Mathf.Max(0f, value.y);
+                else if (path.EndsWith("/s") || path.EndsWith("/down")) amount = Mathf.Max(0f, -value.y);
+                else if (path.EndsWith("/a") || path.EndsWith("/left")) amount = Mathf.Max(0f, -value.x);
+                else if (path.EndsWith("/d") || path.EndsWith("/right")) amount = Mathf.Max(0f, value.x);
+                else continue;
+
+                InputControl<float> floatControl = control as InputControl<float>;
+                if (floatControl != null)
+                {
+                    InputState.Change(floatControl, amount);
+                    wroteComposite = true;
+                }
+            }
+
+            if (!wroteComposite)
+                Logger.LogWarning("UltraTAS: could not find a writable Vector2 control/composite for " + actionName + ".");
         }
 
-        private void SetButtonAction(string actionName, bool pressed)
+        private void WriteButton(string actionName, bool pressed)
         {
             InputAction action;
-            if (!resolvedActions.TryGetValue(actionName, out action)) return;
+            if (!resolvedActions.TryGetValue(actionName, out action))
+                return;
 
+            float value = pressed ? 1f : 0f;
             foreach (InputControl control in action.controls)
             {
                 ButtonControl button = control as ButtonControl;
                 if (button != null)
                 {
-                    InputState.Change(button, pressed ? 1f : 0f);
+                    InputState.Change(button, value);
                     return;
                 }
 
                 InputControl<float> floatControl = control as InputControl<float>;
                 if (floatControl != null)
                 {
-                    InputState.Change(floatControl, pressed ? 1f : 0f);
+                    InputState.Change(floatControl, value);
                     return;
                 }
             }
@@ -389,41 +369,41 @@ namespace UltraTAS
             {
                 using (StreamWriter writer = new StreamWriter(tasPath, false))
                 {
-                    writer.WriteLine("UltraTAS v1");
+                    writer.WriteLine("UltraTAS v2");
                     writer.WriteLine("Frames=" + frames.Count);
-
                     foreach (TASFrame frame in frames)
                     {
                         writer.WriteLine(
-                            frame.Move.x + "," + frame.Move.y + "," +
-                            frame.Look.x + "," + frame.Look.y + "," +
-                            frame.WheelLook.x + "," + frame.WheelLook.y + "," +
-                            Bool(frame.Punch) + "," + Bool(frame.Hook) + "," +
-                            Bool(frame.Fire1) + "," + Bool(frame.Fire2) + "," +
-                            Bool(frame.Jump) + "," + Bool(frame.Slide) + "," +
-                            Bool(frame.Dodge) + "," + Bool(frame.ChangeFist) + "," +
-                            Bool(frame.NextVariation) + "," + Bool(frame.PreviousVariation) + "," +
-                            Bool(frame.NextWeapon) + "," + Bool(frame.PrevWeapon) + "," +
-                            Bool(frame.LastWeapon) + "," + Bool(frame.SelectVariant1) + "," +
-                            Bool(frame.SelectVariant2) + "," + Bool(frame.SelectVariant3) + "," +
-                            Bool(frame.Pause) + "," + Bool(frame.Stats) + "," +
-                            Bool(frame.Slot1) + "," + Bool(frame.Slot2) + "," +
-                            Bool(frame.Slot3) + "," + Bool(frame.Slot4) + "," +
-                            Bool(frame.Slot5) + "," + Bool(frame.Slot6));
+                            F(frame.Move.x) + "," + F(frame.Move.y) + "," +
+                            F(frame.Look.x) + "," + F(frame.Look.y) + "," +
+                            F(frame.WheelLook.x) + "," + F(frame.WheelLook.y) + "," +
+                            Bits(frame));
                     }
                 }
-
-                Logger.LogInfo("TAS saved to: " + tasPath);
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
-                Logger.LogError("Failed to save TAS: " + ex);
+                Logger.LogError("UltraTAS: failed to save TAS: " + ex);
             }
         }
 
-        private static int Bool(bool value)
+        private static string F(float value)
         {
-            return value ? 1 : 0;
+            return value.ToString("R", CultureInfo.InvariantCulture);
+        }
+
+        private static string Bits(TASFrame f)
+        {
+            return (f.Punch ? "1" : "0") + (f.Hook ? "1" : "0") + (f.Fire1 ? "1" : "0") +
+                   (f.Fire2 ? "1" : "0") + (f.Jump ? "1" : "0") + (f.Slide ? "1" : "0") +
+                   (f.Dodge ? "1" : "0") + (f.ChangeFist ? "1" : "0") +
+                   (f.NextVariation ? "1" : "0") + (f.PreviousVariation ? "1" : "0") +
+                   (f.NextWeapon ? "1" : "0") + (f.PrevWeapon ? "1" : "0") +
+                   (f.LastWeapon ? "1" : "0") + (f.SelectVariant1 ? "1" : "0") +
+                   (f.SelectVariant2 ? "1" : "0") + (f.SelectVariant3 ? "1" : "0") +
+                   (f.Pause ? "1" : "0") + (f.Stats ? "1" : "0") +
+                   (f.Slot1 ? "1" : "0") + (f.Slot2 ? "1" : "0") + (f.Slot3 ? "1" : "0") +
+                   (f.Slot4 ? "1" : "0") + (f.Slot5 ? "1" : "0") + (f.Slot6 ? "1" : "0");
         }
     }
 }
