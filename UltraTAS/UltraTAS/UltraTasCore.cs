@@ -1,4 +1,6 @@
 ﻿using BepInEx;
+using System;
+using System.IO;
 using UnityEngine;
 
 namespace _UltraTAS
@@ -6,30 +8,62 @@ namespace _UltraTAS
 [BepInPlugin("UltraTAS", "UltraTAS", "1.0.0")]
 public class UltraTasCore : BaseUnityPlugin
 {
-private bool recording;
+private string logFile;
+private int updateCount = 0;
 
     private void Awake()
     {
-        Logger.LogInfo("[UltraTAS TEST] AWAKE!");
+        string folder = Path.Combine(Paths.PluginPath, "UltraTAS");
+        Directory.CreateDirectory(folder);
+
+        logFile = Path.Combine(folder, "UltraTAS_debug.log");
+
+        File.WriteAllText(
+            logFile,
+            "========================================\n" +
+            "UltraTAS debug log\n" +
+            $"Started: {DateTime.Now}\n" +
+            "========================================\n"
+        );
+
+        DebugLog("AWAKE() reached.");
+        DebugLog("UltraTAS successfully instantiated.");
     }
 
     private void Update()
     {
-        if (Input.GetKeyDown(KeyCode.F6))
+        updateCount++;
+
+        if (updateCount == 1)
         {
-            Logger.LogInfo("[UltraTAS TEST] F6!");
-
-            recording = !recording;
-
-            if (recording)
-                Logger.LogInfo("[UltraTAS TEST] RECORDING ON");
-            else
-                Logger.LogInfo("[UltraTAS TEST] RECORDING OFF");
+            DebugLog("UPDATE() reached for the first time.");
         }
 
-        if (recording)
+        if (Input.GetKeyDown(KeyCode.F6))
         {
-            Logger.LogDebug("[UltraTAS TEST] RECORDING FRAME");
+            DebugLog("F6 DETECTED!");
+        }
+
+        if (Input.GetKeyDown(KeyCode.F7))
+        {
+            DebugLog("F7 DETECTED!");
+        }
+    }
+
+    private void DebugLog(string message)
+    {
+        try
+        {
+            File.AppendAllText(
+                logFile,
+                $"[{DateTime.Now:HH:mm:ss.fff}] {message}\n"
+            );
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(
+                $"UltraTAS debug logger failed: {ex}"
+            );
         }
     }
 }
