@@ -1,5 +1,7 @@
 note: everything is vibecoded, and I only intended for this thing to work and be functionable, not look good or anything
-
+note 2: forgot to add extended description to commit 14e9512d811ab93b3219ab0e471bfe5ba721fb17 and idk how to edit commits so I will write it here:
+    made the core print absolutely everythingso I know where it fails in case it does
+    added the actual replay and record thing
 
 # UltraTAS
 
