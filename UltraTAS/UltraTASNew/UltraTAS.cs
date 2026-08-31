@@ -45,6 +45,22 @@ namespace UltraTAS
         // Interaction timers and phase changes belong to the normal action pipeline.
         // Do not directly edit TriggerState to fake Started/Performed/Canceled.
         //
+        // Recovered InputManager.UpdateState findings:
+        // InputState.Change() ultimately calls InputManager.UpdateState(). That method:
+        //  1. Gets the device's front state buffer and sorts state-change monitors.
+        //  2. Runs ProcessStateChangeMonitors() against the changed device-state region.
+        //  3. Compares the new region with the front buffer (respecting noisy-device masks).
+        //  4. Flips/updates the device state buffers for the requested InputUpdateType.
+        //  5. Invokes onDeviceStateChange callbacks.
+        //  6. Fires state-change notifications when monitors were signalled.
+        // Therefore TAS input written with InputState.Change is not merely changing a
+        // value returned by ReadValue(); it enters the Input System's actual device-state
+        // update path. This is important for action callbacks, button transitions,
+        // interactions and controls monitored by the existing PlayerInput pipeline.
+        // Repeated Change() calls on controls belonging to the same device are still
+        // separate state updates, so deterministic frame injection will eventually need
+        // careful batching/timing rather than assuming one Change() equals one game frame.
+        //
         // Recovered GroundCheck findings:
         // UpdateState() is frame-driven. onGround follows touchingGround unless forced off.
         // superJumpChance, extraJumpChance and bounceChance are Time.deltaTime windows.
