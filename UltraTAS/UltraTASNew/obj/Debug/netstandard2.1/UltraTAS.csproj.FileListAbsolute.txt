@@ -1,0 +1,5 @@
+D:\Users\chara\Desktop\UltraTAS-main\UltraTAS\UltraTASTest\obj\Debug\netstandard2.1\UltraTAS.csproj.AssemblyReference.cache
+D:\Users\chara\Desktop\UltraTAS-main\UltraTAS\UltraTASTest\obj\Debug\netstandard2.1\UltraTAS.GeneratedMSBuildEditorConfig.editorconfig
+D:\Users\chara\Desktop\UltraTAS-main\UltraTAS\UltraTASTest\obj\Debug\netstandard2.1\UltraTAS.AssemblyInfoInputs.cache
+D:\Users\chara\Desktop\UltraTAS-main\UltraTAS\UltraTASTest\obj\Debug\netstandard2.1\UltraTAS.AssemblyInfo.cs
+D:\Users\chara\Desktop\UltraTAS-main\UltraTAS\UltraTASTest\obj\Debug\netstandard2.1\UltraTAS.csproj.CoreCompileInputs.cache

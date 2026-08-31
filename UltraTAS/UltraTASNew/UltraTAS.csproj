@@ -1,0 +1,37 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+
+    <Reference Include="Assembly-CSharp">
+      <HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\ULTRAKILL_Data\Managed\Assembly-CSharp.dll</HintPath>
+    </Reference>
+
+    <Reference Include="BepInEx">
+      <HintPath>C:\Users\chara\AppData\Roaming\r2modmanPlus-local\ULTRAKILL\profiles\Default\BepInEx\core\BepInEx.dll</HintPath>
+    </Reference>
+
+    <Reference Include="Configgy">
+      <HintPath>C:\Users\chara\AppData\Roaming\r2modmanPlus-local\ULTRAKILL\profiles\Default\BepInEx\plugins\Hydraxous-Configgy\Configgy.dll</HintPath>
+    </Reference>
+
+    <Reference Include="UnityEngine">
+      <HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\ULTRAKILL_Data\Managed\UnityEngine.dll</HintPath>
+    </Reference>
+
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\ULTRAKILL_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\ULTRAKILL_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
+    </Reference>
+
+  </ItemGroup>
+
+</Project>

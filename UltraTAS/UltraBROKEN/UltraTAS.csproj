@@ -1,0 +1,32 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="Assembly-CSharp">
+      <HintPath>{ultrakill_dir}ULTRAKILL_Data\Managed\Assembly-CSharp.dll</HintPath>
+    </Reference>
+
+<Reference Include="BepInEx">
+  <HintPath>{ultrakill_dir}BepInEx\core\BepInEx.dll</HintPath>
+</Reference>
+
+<Reference Include="UnityEngine">
+  <HintPath>{ultrakill_dir}ULTRAKILL_Data\Managed\UnityEngine.dll</HintPath>
+</Reference>
+
+<Reference Include="UnityEngine.CoreModule">
+  <HintPath>{ultrakill_dir}ULTRAKILL_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+</Reference>
+
+<Reference Include="UnityEngine.InputLegacyModule">
+  <HintPath>{ultrakill_dir}ULTRAKILL_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
+</Reference>
+
+  </ItemGroup>
+
+</Project>
