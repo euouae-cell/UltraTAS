@@ -1,63 +1,171 @@
-﻿using BepInEx;
+using BepInEx;
 using UnityEngine;
+using System.Collections.Generic;
+using System.IO;
 
 namespace UltraTAS
 {
-[BepInPlugin("OWATAMSATE.UltraTAS", "UltraTAS", "1.0.0")]
-public class UltraTAS : BaseUnityPlugin
-{
-private int updateCount = 0;
-
-    private void Awake()
+    [BepInPlugin("OWATAMSATE.UltraTAS", "UltraTAS", "1.0.0")]
+    public class UltraTAS : BaseUnityPlugin
     {
-        Logger.LogInfo("========================================");
-        Logger.LogInfo("UltraTAS TEST START");
-        Logger.LogInfo("AWAKE reached!");
-        Logger.LogInfo("Unity version: " + Application.unityVersion);
-        Logger.LogInfo("GameObject: " + gameObject.name);
-        Logger.LogInfo("========================================");
-    }
-
-    private void OnEnable()
-    {
-        Logger.LogInfo("UltraTAS OnEnable reached!");
-    }
-
-    private void Update()
-    {
-        updateCount++;
-
-        if (updateCount == 1)
+        private class TASFrame
         {
-            Logger.LogInfo("FIRST UPDATE REACHED!");
+            public bool W;
+            public bool A;
+            public bool S;
+            public bool D;
+            public bool Jump;
+            public bool Dash;
+            public bool Slide;
+            public bool Punch;
+            public bool Fire;
+            public bool AltFire;
+            public bool ChangeWeapon;
         }
 
-        if (Input.GetKeyDown(KeyCode.F6))
+        private readonly List<TASFrame> frames = new List<TASFrame>();
+        private bool recording;
+        private bool playing;
+        private int playbackFrame;
+        private string tasPath;
+
+        private void Awake()
         {
-            Logger.LogInfo("F6 PRESSED!");
+            tasPath = Path.Combine(Paths.ConfigPath, "ultratas.tas");
+            Logger.LogInfo("UltraTAS loaded.");
+            Logger.LogInfo("F6 = start/stop recording, F7 = start/stop playback, F8 = clear recording.");
         }
 
-        if (Input.GetKeyDown(KeyCode.F7))
+        private void Update()
         {
-            Logger.LogInfo("F7 PRESSED!");
+            if (Input.GetKeyDown(KeyCode.F6))
+            {
+                if (recording)
+                    StopRecording();
+                else
+                    StartRecording();
+            }
+
+            if (Input.GetKeyDown(KeyCode.F7))
+            {
+                if (playing)
+                    StopPlayback();
+                else
+                    StartPlayback();
+            }
+
+            if (Input.GetKeyDown(KeyCode.F8))
+            {
+                frames.Clear();
+                recording = false;
+                playing = false;
+                playbackFrame = 0;
+                Logger.LogInfo("TAS recording cleared.");
+            }
+
+            if (recording)
+                RecordFrame();
+
+            if (playing)
+                PlayFrame();
         }
 
-        if (updateCount % 300 == 0)
+        private void StartRecording()
         {
-            Logger.LogInfo("Update is alive. Count = " + updateCount);
+            playing = false;
+            frames.Clear();
+            recording = true;
+            Logger.LogInfo("TAS recording started.");
+        }
+
+        private void StopRecording()
+        {
+            recording = false;
+            SaveRecording();
+            Logger.LogInfo("TAS recording stopped. Frames: " + frames.Count);
+        }
+
+        private void StartPlayback()
+        {
+            if (frames.Count == 0)
+            {
+                Logger.LogWarning("Cannot start playback: no recorded frames.");
+                return;
+            }
+
+            recording = false;
+            playing = true;
+            playbackFrame = 0;
+            Logger.LogInfo("TAS playback started. Frames: " + frames.Count);
+        }
+
+        private void StopPlayback()
+        {
+            playing = false;
+            Logger.LogInfo("TAS playback stopped at frame " + playbackFrame + ".");
+        }
+
+        private void RecordFrame()
+        {
+            TASFrame frame = new TASFrame
+            {
+                W = Input.GetKey(KeyCode.W),
+                A = Input.GetKey(KeyCode.A),
+                S = Input.GetKey(KeyCode.S),
+                D = Input.GetKey(KeyCode.D),
+                Jump = Input.GetKey(KeyCode.Space),
+                Dash = Input.GetKey(KeyCode.LeftShift),
+                Slide = Input.GetKey(KeyCode.LeftControl),
+                Punch = Input.GetMouseButton(0),
+                Fire = Input.GetMouseButton(0),
+                AltFire = Input.GetMouseButton(1),
+                ChangeWeapon = Input.GetKey(KeyCode.Q)
+            };
+
+            frames.Add(frame);
+        }
+
+        private void PlayFrame()
+        {
+            if (playbackFrame >= frames.Count)
+            {
+                StopPlayback();
+                return;
+            }
+
+            // Playback input injection will be implemented after recording is verified.
+            playbackFrame++;
+        }
+
+        private void SaveRecording()
+        {
+            try
+            {
+                using (StreamWriter writer = new StreamWriter(tasPath, false))
+                {
+                    foreach (TASFrame frame in frames)
+                    {
+                        writer.WriteLine(
+                            (frame.W ? "1" : "0") + "," +
+                            (frame.A ? "1" : "0") + "," +
+                            (frame.S ? "1" : "0") + "," +
+                            (frame.D ? "1" : "0") + "," +
+                            (frame.Jump ? "1" : "0") + "," +
+                            (frame.Dash ? "1" : "0") + "," +
+                            (frame.Slide ? "1" : "0") + "," +
+                            (frame.Punch ? "1" : "0") + "," +
+                            (frame.Fire ? "1" : "0") + "," +
+                            (frame.AltFire ? "1" : "0") + "," +
+                            (frame.ChangeWeapon ? "1" : "0"));
+                    }
+                }
+
+                Logger.LogInfo("TAS saved to: " + tasPath);
+            }
+            catch (System.Exception ex)
+            {
+                Logger.LogError("Failed to save TAS: " + ex);
+            }
         }
     }
-
-    private void OnDisable()
-    {
-        Logger.LogInfo("UltraTAS OnDisable reached!");
-        Logger.LogInfo("Final update count: " + updateCount);
-    }
-
-    private void OnDestroy()
-    {
-        Logger.LogInfo("UltraTAS OnDestroy reached!");
-    }
-}
-
 }
