@@ -8,19 +8,43 @@ namespace UltraTAS
     [BepInPlugin("OWATAMSATE.UltraTAS", "UltraTAS", "1.0.0")]
     public class UltraTAS : BaseUnityPlugin
     {
+        // This mirrors the actions exposed by ULTRAKILL's PlayerInput.
+        // We are keeping the TAS frame format independent of the actual
+        // InputActionState API until that class has been inspected.
         private class TASFrame
         {
-            public bool W;
-            public bool A;
-            public bool S;
-            public bool D;
-            public bool Jump;
-            public bool Dash;
-            public bool Slide;
+            public Vector2 Move;
+            public Vector2 Look;
+            public Vector2 WheelLook;
+
             public bool Punch;
-            public bool Fire;
-            public bool AltFire;
-            public bool ChangeWeapon;
+            public bool Hook;
+            public bool Fire1;
+            public bool Fire2;
+            public bool Jump;
+            public bool Slide;
+            public bool Dodge;
+            public bool ChangeFist;
+
+            public bool NextVariation;
+            public bool PreviousVariation;
+            public bool NextWeapon;
+            public bool PrevWeapon;
+            public bool LastWeapon;
+
+            public bool SelectVariant1;
+            public bool SelectVariant2;
+            public bool SelectVariant3;
+
+            public bool Pause;
+            public bool Stats;
+
+            public bool Slot1;
+            public bool Slot2;
+            public bool Slot3;
+            public bool Slot4;
+            public bool Slot5;
+            public bool Slot6;
         }
 
         private readonly List<TASFrame> frames = new List<TASFrame>();
@@ -32,8 +56,14 @@ namespace UltraTAS
         private void Awake()
         {
             tasPath = Path.Combine(Paths.ConfigPath, "ultratas.tas");
+
+            Logger.LogInfo("========================================");
             Logger.LogInfo("UltraTAS loaded.");
-            Logger.LogInfo("F6 = start/stop recording, F7 = start/stop playback, F8 = clear recording.");
+            Logger.LogInfo("Recording/playback core initialized.");
+            Logger.LogInfo("F6 = start/stop recording");
+            Logger.LogInfo("F7 = start/stop playback");
+            Logger.LogInfo("F8 = clear recording");
+            Logger.LogInfo("========================================");
         }
 
         private void Update()
@@ -56,11 +86,7 @@ namespace UltraTAS
 
             if (Input.GetKeyDown(KeyCode.F8))
             {
-                frames.Clear();
-                recording = false;
-                playing = false;
-                playbackFrame = 0;
-                Logger.LogInfo("TAS recording cleared.");
+                ClearRecording();
             }
 
             if (recording)
@@ -75,6 +101,7 @@ namespace UltraTAS
             playing = false;
             frames.Clear();
             recording = true;
+            playbackFrame = 0;
             Logger.LogInfo("TAS recording started.");
         }
 
@@ -105,21 +132,57 @@ namespace UltraTAS
             Logger.LogInfo("TAS playback stopped at frame " + playbackFrame + ".");
         }
 
+        private void ClearRecording()
+        {
+            frames.Clear();
+            recording = false;
+            playing = false;
+            playbackFrame = 0;
+            Logger.LogInfo("TAS recording cleared.");
+        }
+
         private void RecordFrame()
         {
+            // Temporary compatibility capture. The actual source of truth will
+            // be ULTRAKILL's PlayerInput/InputActionState once that class is mapped.
+            // Do not remove the TASFrame fields above: they correspond to every
+            // action currently exposed by PlayerInput.
             TASFrame frame = new TASFrame
             {
-                W = Input.GetKey(KeyCode.W),
-                A = Input.GetKey(KeyCode.A),
-                S = Input.GetKey(KeyCode.S),
-                D = Input.GetKey(KeyCode.D),
-                Jump = Input.GetKey(KeyCode.Space),
-                Dash = Input.GetKey(KeyCode.LeftShift),
-                Slide = Input.GetKey(KeyCode.LeftControl),
+                Move = new Vector2(
+                    Input.GetAxisRaw("Horizontal"),
+                    Input.GetAxisRaw("Vertical")),
+                Look = Vector2.zero,
+                WheelLook = Vector2.zero,
+
                 Punch = Input.GetMouseButton(0),
-                Fire = Input.GetMouseButton(0),
-                AltFire = Input.GetMouseButton(1),
-                ChangeWeapon = Input.GetKey(KeyCode.Q)
+                Hook = Input.GetKey(KeyCode.E),
+                Fire1 = Input.GetMouseButton(0),
+                Fire2 = Input.GetMouseButton(1),
+                Jump = Input.GetKey(KeyCode.Space),
+                Slide = Input.GetKey(KeyCode.LeftControl),
+                Dodge = Input.GetKey(KeyCode.LeftShift),
+                ChangeFist = Input.GetKey(KeyCode.F),
+
+                NextVariation = Input.GetKey(KeyCode.X),
+                PreviousVariation = Input.GetKey(KeyCode.Z),
+                NextWeapon = Input.GetKey(KeyCode.Q),
+                PrevWeapon = Input.GetKey(KeyCode.Q),
+                LastWeapon = Input.GetKey(KeyCode.R),
+
+                SelectVariant1 = Input.GetKey(KeyCode.Alpha1),
+                SelectVariant2 = Input.GetKey(KeyCode.Alpha2),
+                SelectVariant3 = Input.GetKey(KeyCode.Alpha3),
+
+                Pause = Input.GetKey(KeyCode.Escape),
+                Stats = Input.GetKey(KeyCode.Tab),
+
+                Slot1 = Input.GetKey(KeyCode.Alpha1),
+                Slot2 = Input.GetKey(KeyCode.Alpha2),
+                Slot3 = Input.GetKey(KeyCode.Alpha3),
+                Slot4 = Input.GetKey(KeyCode.Alpha4),
+                Slot5 = Input.GetKey(KeyCode.Alpha5),
+                Slot6 = Input.GetKey(KeyCode.Alpha6)
             };
 
             frames.Add(frame);
@@ -133,7 +196,9 @@ namespace UltraTAS
                 return;
             }
 
-            // Playback input injection will be implemented after recording is verified.
+            // Input injection intentionally remains disabled here.
+            // We need PlayerInput's InputActionState implementation before
+            // playback can safely feed values into ULTRAKILL.
             playbackFrame++;
         }
 
@@ -143,20 +208,39 @@ namespace UltraTAS
             {
                 using (StreamWriter writer = new StreamWriter(tasPath, false))
                 {
+                    writer.WriteLine("UltraTAS v1");
+                    writer.WriteLine("Frames=" + frames.Count);
+
                     foreach (TASFrame frame in frames)
                     {
                         writer.WriteLine(
-                            (frame.W ? "1" : "0") + "," +
-                            (frame.A ? "1" : "0") + "," +
-                            (frame.S ? "1" : "0") + "," +
-                            (frame.D ? "1" : "0") + "," +
-                            (frame.Jump ? "1" : "0") + "," +
-                            (frame.Dash ? "1" : "0") + "," +
-                            (frame.Slide ? "1" : "0") + "," +
-                            (frame.Punch ? "1" : "0") + "," +
-                            (frame.Fire ? "1" : "0") + "," +
-                            (frame.AltFire ? "1" : "0") + "," +
-                            (frame.ChangeWeapon ? "1" : "0"));
+                            frame.Move.x + "," + frame.Move.y + "," +
+                            frame.Look.x + "," + frame.Look.y + "," +
+                            frame.WheelLook.x + "," + frame.WheelLook.y + "," +
+                            Bool(frame.Punch) + "," +
+                            Bool(frame.Hook) + "," +
+                            Bool(frame.Fire1) + "," +
+                            Bool(frame.Fire2) + "," +
+                            Bool(frame.Jump) + "," +
+                            Bool(frame.Slide) + "," +
+                            Bool(frame.Dodge) + "," +
+                            Bool(frame.ChangeFist) + "," +
+                            Bool(frame.NextVariation) + "," +
+                            Bool(frame.PreviousVariation) + "," +
+                            Bool(frame.NextWeapon) + "," +
+                            Bool(frame.PrevWeapon) + "," +
+                            Bool(frame.LastWeapon) + "," +
+                            Bool(frame.SelectVariant1) + "," +
+                            Bool(frame.SelectVariant2) + "," +
+                            Bool(frame.SelectVariant3) + "," +
+                            Bool(frame.Pause) + "," +
+                            Bool(frame.Stats) + "," +
+                            Bool(frame.Slot1) + "," +
+                            Bool(frame.Slot2) + "," +
+                            Bool(frame.Slot3) + "," +
+                            Bool(frame.Slot4) + "," +
+                            Bool(frame.Slot5) + "," +
+                            Bool(frame.Slot6));
                     }
                 }
 
@@ -166,6 +250,11 @@ namespace UltraTAS
             {
                 Logger.LogError("Failed to save TAS: " + ex);
             }
+        }
+
+        private static int Bool(bool value)
+        {
+            return value ? 1 : 0;
         }
     }
 }
