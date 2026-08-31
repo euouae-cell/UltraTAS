@@ -1,31 +1,35 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
     <LangVersion>latest</LangVersion>
-    <TargetFramework>net6.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <PublicizeAll>true</PublicizeAll>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
   </PropertyGroup>
+
   <ItemGroup>
-    <PackageReference Include="Krafs.Publicizer" Version="2.2.1">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
+    <Compile Include="UltraTasCore.cs" />
+
+<Reference Include="BepInEx">
+  <HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\BepInEx\core\BepInEx.dll</HintPath>
+</Reference>
+
+<Reference Include="UnityEngine">
+  <HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.dll</HintPath>
+</Reference>
+
+<Reference Include="UnityEngine.CoreModule">
+  <HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+</Reference>
+
+<Reference Include="UnityEngine.InputLegacyModule">
+  <HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
+</Reference>
+
   </ItemGroup>
-  <ItemGroup>
-    <Reference Include="Assembly-CSharp"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\Assembly-CSharp.dll</HintPath></Reference>
-    <Reference Include="BepInEx"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\BepInEx\core\BepInEx.dll</HintPath></Reference>
-    <Reference Include="Configgy"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\BepInEx\plugins\Hydraxous-Configgy\Configgy.dll</HintPath></Reference>
-    <Reference Include="Unity.InputSystem"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\Unity.InputSystem.dll</HintPath></Reference>
-    <Reference Include="UnityEngine"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.dll</HintPath></Reference>
-    <Reference Include="UnityEngine.CoreModule"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.CoreModule.dll</HintPath></Reference>
-    <Reference Include="UnityEngine.InputLegacyModule"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath></Reference>
-    <Reference Include="UnityEngine.InputModule"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.InputModule.dll</HintPath></Reference>
-    <Reference Include="UnityEngine.TextRenderingModule"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath></Reference>
-    <Reference Include="UnityEngine.UI"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.UI.dll</HintPath></Reference>
-    <Reference Include="UnityEngine.UIElementsModule"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.UIElementsModule.dll</HintPath></Reference>
-    <Reference Include="UnityEngine.UIModule"><HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\Mods\ULTRAKILL\profiles\Modded\ULTRAKILL_Data\Managed\UnityEngine.UIModule.dll</HintPath></Reference>
-    <Reference Include="WindowsInput"><HintPath>..\WindowsInput.dll</HintPath></Reference>
-  </ItemGroup>
+
 </Project>
