@@ -1,3 +1,4 @@
+```csharp
 using BepInEx;
 using HarmonyLib;
 using UnityEngine;
@@ -36,7 +37,8 @@ namespace UltraTAS
             "Slot1", "Slot2", "Slot3", "Slot4", "Slot5", "Slot6"
         };
 
-        private readonly List<TASFrame> frames = new List<TASFrame>();
+        private readonly List<TASFrame> frames =
+            new List<TASFrame>();
 
         private readonly Dictionary<string, InputAction> resolvedActions =
             new Dictionary<string, InputAction>();
@@ -45,12 +47,28 @@ namespace UltraTAS
 
         private bool recording;
         private bool playing;
-
         private int playbackFrame;
 
         private string tasPath = string.Empty;
 
         private global::PlayerInput? playerInput;
+
+        /*
+         * RNG DETERMINISM
+         *
+         * Every TAS gets a seed.
+         *
+         * During recording:
+         *     - A seed is generated.
+         *     - UnityEngine.Random is initialized with it.
+         *
+         * During playback:
+         *     - The exact same seed is restored before frame 0.
+         *
+         * This makes UnityEngine.Random deterministic as long as the
+         * game consumes random numbers in the same order.
+         */
+        private int tasSeed;
 
         private static UltraTAS? Instance { get; set; }
 
@@ -63,7 +81,10 @@ namespace UltraTAS
                 "ultratas.tas"
             );
 
-            harmony = new Harmony("OWATAMSATE.UltraTAS");
+            harmony = new Harmony(
+                "OWATAMSATE.UltraTAS"
+            );
+
             harmony.PatchAll();
 
             InputSystem.onBeforeUpdate += OnBeforeInputUpdate;
@@ -72,9 +93,8 @@ namespace UltraTAS
             Logger.LogInfo("========================================");
             Logger.LogInfo("UltraTAS 1.2.3 loaded.");
             Logger.LogInfo("Using ULTRAKILL's native PlayerInput instance.");
+            Logger.LogInfo("Deterministic Unity RNG seed support enabled.");
             Logger.LogInfo("F6 = start/stop recording | F7 = playback | F8 = clear");
-            Logger.LogInfo("Replay uses native Unity Input System state events.");
-            Logger.LogInfo("Keyboard AND mouse bindings are replayed.");
             Logger.LogInfo("========================================");
         }
 
@@ -94,13 +114,15 @@ namespace UltraTAS
         [HarmonyPatch(MethodType.Constructor)]
         private static class PlayerInputConstructorPatch
         {
-            private static void Postfix(global::PlayerInput __instance)
+            private static void Postfix(
+                global::PlayerInput __instance)
             {
                 Instance?.SetPlayerInput(__instance);
             }
         }
 
-        private void SetPlayerInput(global::PlayerInput input)
+        private void SetPlayerInput(
+            global::PlayerInput input)
         {
             playerInput = input;
 
@@ -160,21 +182,60 @@ namespace UltraTAS
 
             resolvedActions.Clear();
 
-            AddAction("Move", playerInput.Actions.Movement.Move);
-            AddAction("Look", playerInput.Actions.Movement.Look);
-            AddAction("WheelLook", playerInput.Actions.Weapon.WheelLook);
+            AddAction(
+                "Move",
+                playerInput.Actions.Movement.Move
+            );
 
-            AddAction("Punch", playerInput.Actions.Fist.Punch);
-            AddAction("Hook", playerInput.Actions.Fist.Hook);
+            AddAction(
+                "Look",
+                playerInput.Actions.Movement.Look
+            );
 
-            AddAction("Fire1", playerInput.Actions.Weapon.PrimaryFire);
-            AddAction("Fire2", playerInput.Actions.Weapon.SecondaryFire);
+            AddAction(
+                "WheelLook",
+                playerInput.Actions.Weapon.WheelLook
+            );
 
-            AddAction("Jump", playerInput.Actions.Movement.Jump);
-            AddAction("Slide", playerInput.Actions.Movement.Slide);
-            AddAction("Dodge", playerInput.Actions.Movement.Dodge);
+            AddAction(
+                "Punch",
+                playerInput.Actions.Fist.Punch
+            );
 
-            AddAction("ChangeFist", playerInput.Actions.Fist.ChangeFist);
+            AddAction(
+                "Hook",
+                playerInput.Actions.Fist.Hook
+            );
+
+            AddAction(
+                "Fire1",
+                playerInput.Actions.Weapon.PrimaryFire
+            );
+
+            AddAction(
+                "Fire2",
+                playerInput.Actions.Weapon.SecondaryFire
+            );
+
+            AddAction(
+                "Jump",
+                playerInput.Actions.Movement.Jump
+            );
+
+            AddAction(
+                "Slide",
+                playerInput.Actions.Movement.Slide
+            );
+
+            AddAction(
+                "Dodge",
+                playerInput.Actions.Movement.Dodge
+            );
+
+            AddAction(
+                "ChangeFist",
+                playerInput.Actions.Fist.ChangeFist
+            );
 
             AddAction(
                 "NextVariation",
@@ -216,15 +277,45 @@ namespace UltraTAS
                 playerInput.Actions.Weapon.VariationSlot3
             );
 
-            AddAction("Pause", playerInput.Actions.UI.Pause);
-            AddAction("Stats", playerInput.Actions.HUD.Stats);
+            AddAction(
+                "Pause",
+                playerInput.Actions.UI.Pause
+            );
 
-            AddAction("Slot1", playerInput.Actions.Weapon.Revolver);
-            AddAction("Slot2", playerInput.Actions.Weapon.Shotgun);
-            AddAction("Slot3", playerInput.Actions.Weapon.Nailgun);
-            AddAction("Slot4", playerInput.Actions.Weapon.Railcannon);
-            AddAction("Slot5", playerInput.Actions.Weapon.RocketLauncher);
-            AddAction("Slot6", playerInput.Actions.Weapon.SpawnerArm);
+            AddAction(
+                "Stats",
+                playerInput.Actions.HUD.Stats
+            );
+
+            AddAction(
+                "Slot1",
+                playerInput.Actions.Weapon.Revolver
+            );
+
+            AddAction(
+                "Slot2",
+                playerInput.Actions.Weapon.Shotgun
+            );
+
+            AddAction(
+                "Slot3",
+                playerInput.Actions.Weapon.Nailgun
+            );
+
+            AddAction(
+                "Slot4",
+                playerInput.Actions.Weapon.Railcannon
+            );
+
+            AddAction(
+                "Slot5",
+                playerInput.Actions.Weapon.RocketLauncher
+            );
+
+            AddAction(
+                "Slot6",
+                playerInput.Actions.Weapon.SpawnerArm
+            );
 
             Logger.LogInfo(
                 "UltraTAS: resolved " +
@@ -237,7 +328,9 @@ namespace UltraTAS
             return resolvedActions.Count > 0;
         }
 
-        private void AddAction(string name, InputAction? action)
+        private void AddAction(
+            string name,
+            InputAction? action)
         {
             if (action != null)
             {
@@ -246,7 +339,8 @@ namespace UltraTAS
             else
             {
                 Logger.LogWarning(
-                    "UltraTAS: native action is null: " + name
+                    "UltraTAS: native action is null: " +
+                    name
                 );
             }
         }
@@ -257,11 +351,34 @@ namespace UltraTAS
                 return;
 
             playing = false;
+
             frames.Clear();
+
             playbackFrame = 0;
+
+            /*
+             * Generate the TAS seed once.
+             *
+             * We deliberately store the seed rather than trying to
+             * serialize UnityEngine.Random.state.
+             */
+            tasSeed = Environment.TickCount;
+
+            /*
+             * Initialize Unity's RNG immediately so the recording
+             * begins from a known random state.
+             */
+            UnityEngine.Random.InitState(tasSeed);
+
             recording = true;
 
-            Logger.LogInfo("TAS recording started.");
+            Logger.LogInfo(
+                "TAS recording started."
+            );
+
+            Logger.LogInfo(
+                "TAS RNG seed: " + tasSeed
+            );
         }
 
         private void StopRecording()
@@ -273,6 +390,10 @@ namespace UltraTAS
             Logger.LogInfo(
                 "TAS recording stopped. Frames: " +
                 frames.Count
+            );
+
+            Logger.LogInfo(
+                "TAS RNG seed: " + tasSeed
             );
         }
 
@@ -291,12 +412,30 @@ namespace UltraTAS
                 return;
 
             recording = false;
+
+            /*
+             * IMPORTANT:
+             *
+             * Reset the RNG BEFORE the first replay frame is processed.
+             *
+             * This means random calls made by the game after playback
+             * begins start from exactly the same Unity RNG seed used
+             * during recording.
+             */
+            UnityEngine.Random.InitState(tasSeed);
+
             playing = true;
+
             playbackFrame = 0;
 
             Logger.LogInfo(
                 "TAS playback started. Frames: " +
                 frames.Count
+            );
+
+            Logger.LogInfo(
+                "Restored TAS RNG seed: " +
+                tasSeed
             );
         }
 
@@ -317,9 +456,14 @@ namespace UltraTAS
 
             recording = false;
             playing = false;
+
             playbackFrame = 0;
 
-            Logger.LogInfo("TAS recording cleared.");
+            tasSeed = 0;
+
+            Logger.LogInfo(
+                "TAS recording cleared."
+            );
         }
 
         private void RecordFrame()
@@ -345,16 +489,29 @@ namespace UltraTAS
 
                 ChangeFist = ReadButton("ChangeFist"),
 
-                NextVariation = ReadButton("NextVariation"),
-                PreviousVariation = ReadButton("PreviousVariation"),
+                NextVariation =
+                    ReadButton("NextVariation"),
 
-                NextWeapon = ReadButton("NextWeapon"),
-                PrevWeapon = ReadButton("PrevWeapon"),
-                LastWeapon = ReadButton("LastWeapon"),
+                PreviousVariation =
+                    ReadButton("PreviousVariation"),
 
-                SelectVariant1 = ReadButton("SelectVariant1"),
-                SelectVariant2 = ReadButton("SelectVariant2"),
-                SelectVariant3 = ReadButton("SelectVariant3"),
+                NextWeapon =
+                    ReadButton("NextWeapon"),
+
+                PrevWeapon =
+                    ReadButton("PrevWeapon"),
+
+                LastWeapon =
+                    ReadButton("LastWeapon"),
+
+                SelectVariant1 =
+                    ReadButton("SelectVariant1"),
+
+                SelectVariant2 =
+                    ReadButton("SelectVariant2"),
+
+                SelectVariant3 =
+                    ReadButton("SelectVariant3"),
 
                 Pause = ReadButton("Pause"),
                 Stats = ReadButton("Stats"),
@@ -370,7 +527,8 @@ namespace UltraTAS
             frames.Add(frame);
         }
 
-        private Vector2 ReadVector2(string actionName)
+        private Vector2 ReadVector2(
+            string actionName)
         {
             if (!resolvedActions.TryGetValue(
                     actionName,
@@ -383,7 +541,8 @@ namespace UltraTAS
             return action.ReadValue<Vector2>();
         }
 
-        private bool ReadButton(string actionName)
+        private bool ReadButton(
+            string actionName)
         {
             if (!resolvedActions.TryGetValue(
                     actionName,
@@ -404,18 +563,15 @@ namespace UltraTAS
                 return;
             }
 
-            TASFrame frame = frames[playbackFrame];
+            TASFrame frame =
+                frames[playbackFrame];
 
             /*
-             * The replay frame represents the complete input state for
-             * this frame.
+             * Replay ONLY what was recorded.
              *
-             * We queue the state onto the actual Unity Input System
-             * devices instead of modifying KeyControls directly.
-             *
-             * Unity then compares this state against the previous
-             * device state, producing the appropriate press/release
-             * transitions.
+             * Nothing here automatically changes weapons.
+             * Slot/NextWeapon/etc. are only sent when their
+             * corresponding TAS frame contains them.
              */
 
             QueueKeyboardFrame(frame);
@@ -424,9 +580,11 @@ namespace UltraTAS
             playbackFrame++;
         }
 
-        private void QueueKeyboardFrame(TASFrame frame)
+        private void QueueKeyboardFrame(
+            TASFrame frame)
         {
-            Keyboard? keyboard = Keyboard.current;
+            Keyboard? keyboard =
+                Keyboard.current;
 
             if (keyboard == null)
                 return;
@@ -613,13 +771,17 @@ namespace UltraTAS
                     keyboard
                 );
 
-                InputSystem.QueueEvent(eventPtr);
+                InputSystem.QueueEvent(
+                    eventPtr
+                );
             }
         }
 
-        private void QueueMouseFrame(TASFrame frame)
+        private void QueueMouseFrame(
+            TASFrame frame)
         {
-            Mouse? mouse = Mouse.current;
+            Mouse? mouse =
+                Mouse.current;
 
             if (mouse == null)
                 return;
@@ -631,9 +793,6 @@ namespace UltraTAS
                 )
             )
             {
-                /*
-                 * Camera
-                 */
                 WriteActionToEvent(
                     "Look",
                     frame.Look,
@@ -648,91 +807,9 @@ namespace UltraTAS
                     mouse
                 );
 
-                /*
-                 * IMPORTANT FIX:
-                 *
-                 * Fire1/Fire2 were previously only written to the
-                 * keyboard StateEvent.
-                 *
-                 * If ULTRAKILL's PrimaryFire / SecondaryFire action
-                 * is bound to Mouse.leftButton / Mouse.rightButton,
-                 * the recorded value therefore never reached the
-                 * actual mouse device.
-                 *
-                 * Weapon-related actions are also sent here. Only
-                 * controls belonging to Mouse are modified.
-                 */
-                WriteButtonActionToEvent(
-                    "Fire1",
-                    frame.Fire1,
-                    eventPtr,
-                    mouse
+                InputSystem.QueueEvent(
+                    eventPtr
                 );
-
-                WriteButtonActionToEvent(
-                    "Fire2",
-                    frame.Fire2,
-                    eventPtr,
-                    mouse
-                );
-
-                WriteButtonActionToEvent(
-                    "NextWeapon",
-                    frame.NextWeapon,
-                    eventPtr,
-                    mouse
-                );
-
-                WriteButtonActionToEvent(
-                    "PrevWeapon",
-                    frame.PrevWeapon,
-                    eventPtr,
-                    mouse
-                );
-
-                WriteButtonActionToEvent(
-                    "NextVariation",
-                    frame.NextVariation,
-                    eventPtr,
-                    mouse
-                );
-
-                WriteButtonActionToEvent(
-                    "PreviousVariation",
-                    frame.PreviousVariation,
-                    eventPtr,
-                    mouse
-                );
-
-                WriteButtonActionToEvent(
-                    "LastWeapon",
-                    frame.LastWeapon,
-                    eventPtr,
-                    mouse
-                );
-
-                WriteButtonActionToEvent(
-                    "SelectVariant1",
-                    frame.SelectVariant1,
-                    eventPtr,
-                    mouse
-                );
-
-                WriteButtonActionToEvent(
-                    "SelectVariant2",
-                    frame.SelectVariant2,
-                    eventPtr,
-                    mouse
-                );
-
-                WriteButtonActionToEvent(
-                    "SelectVariant3",
-                    frame.SelectVariant3,
-                    eventPtr,
-                    mouse
-                );
-
-                InputSystem.QueueEvent(eventPtr);
             }
         }
 
@@ -750,12 +827,18 @@ namespace UltraTAS
                 return;
             }
 
-            foreach (InputControl control in action.controls)
+            foreach (InputControl control
+                in action.controls)
             {
-                if (!BelongsToDevice(control, device))
+                if (!BelongsToDevice(
+                        control,
+                        device))
+                {
                     continue;
+                }
 
-                string path = control.path.ToLowerInvariant();
+                string path =
+                    control.path.ToLowerInvariant();
 
                 if (control is Vector2Control vector2)
                 {
@@ -774,28 +857,44 @@ namespace UltraTAS
                     path.EndsWith("/up")
                 )
                 {
-                    amount = Mathf.Max(0f, value.y);
+                    amount =
+                        Mathf.Max(
+                            0f,
+                            value.y
+                        );
                 }
                 else if (
                     path.EndsWith("/s") ||
                     path.EndsWith("/down")
                 )
                 {
-                    amount = Mathf.Max(0f, -value.y);
+                    amount =
+                        Mathf.Max(
+                            0f,
+                            -value.y
+                        );
                 }
                 else if (
                     path.EndsWith("/a") ||
                     path.EndsWith("/left")
                 )
                 {
-                    amount = Mathf.Max(0f, -value.x);
+                    amount =
+                        Mathf.Max(
+                            0f,
+                            -value.x
+                        );
                 }
                 else if (
                     path.EndsWith("/d") ||
                     path.EndsWith("/right")
                 )
                 {
-                    amount = Mathf.Max(0f, value.x);
+                    amount =
+                        Mathf.Max(
+                            0f,
+                            value.x
+                        );
                 }
                 else
                 {
@@ -824,12 +923,18 @@ namespace UltraTAS
                 return;
             }
 
-            float value = pressed ? 1f : 0f;
+            float value =
+                pressed ? 1f : 0f;
 
-            foreach (InputControl control in action.controls)
+            foreach (InputControl control
+                in action.controls)
             {
-                if (!BelongsToDevice(control, device))
+                if (!BelongsToDevice(
+                        control,
+                        device))
+                {
                     continue;
+                }
 
                 WriteControlValue(
                     control,
@@ -879,16 +984,30 @@ namespace UltraTAS
             {
                 using (
                     StreamWriter writer =
-                        new StreamWriter(tasPath, false)
+                        new StreamWriter(
+                            tasPath,
+                            false
+                        )
                 )
                 {
-                    writer.WriteLine("UltraTAS v2");
-
                     writer.WriteLine(
-                        "Frames=" + frames.Count
+                        "UltraTAS v3"
                     );
 
-                    foreach (TASFrame frame in frames)
+                    /*
+                     * The seed is part of the replay file.
+                     */
+                    writer.WriteLine(
+                        "Seed=" + tasSeed
+                    );
+
+                    writer.WriteLine(
+                        "Frames=" +
+                        frames.Count
+                    );
+
+                    foreach (TASFrame frame
+                        in frames)
                     {
                         writer.WriteLine(
                             F(frame.Move.x) + "," +
@@ -904,6 +1023,11 @@ namespace UltraTAS
                         );
                     }
                 }
+
+                Logger.LogInfo(
+                    "UltraTAS: saved TAS with RNG seed " +
+                    tasSeed
+                );
             }
             catch (Exception ex)
             {
@@ -914,7 +1038,8 @@ namespace UltraTAS
             }
         }
 
-        private static string F(float value)
+        private static string F(
+            float value)
         {
             return value.ToString(
                 "R",
@@ -922,7 +1047,8 @@ namespace UltraTAS
             );
         }
 
-        private static string Bits(TASFrame f)
+        private static string Bits(
+            TASFrame f)
         {
             return
                 (f.Punch ? "1" : "0") +
@@ -957,3 +1083,4 @@ namespace UltraTAS
         }
     }
 }
+```
