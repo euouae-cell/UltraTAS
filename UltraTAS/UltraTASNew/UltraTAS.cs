@@ -11,7 +11,7 @@ using System.IO;
 
 namespace UltraTAS
 {
-    [BepInPlugin("ti0z1.UltraTAS", "UltraTAS", "1.2.4")]
+    [BepInPlugin("ti0z1.UltraTAS", "UltraTAS", "1.2.6")]
     public class UltraTAS : BaseUnityPlugin
     {
         private sealed class TASFrame
@@ -105,7 +105,24 @@ namespace UltraTAS
         private int playbackFrame;
         private int tasSeed;
 
+        private int lastPlaybackUnityFrame = -1;
+        private int lastRecordingUnityFrame = -1;
+
         private string tasPath = string.Empty;
+
+        /*
+         * Weapon state used by playback.
+         *
+         * We only switch when the recorded selected slot changes.
+         * This avoids repeatedly forcing the same weapon and
+         * resetting ULTRAKILL's weapon state every frame.
+         */
+        private int lastPlaybackSlot = -1;
+
+        /*
+         * TAS overlay.
+         */
+        private GUIStyle? tasStyle;
 
         private static UltraTAS? Instance { get; set; }
 
@@ -124,16 +141,7 @@ namespace UltraTAS
 
             harmony.PatchAll();
 
-            /*
-             * Playback input is inserted before Unity processes
-             * the current Input System update.
-             */
             InputSystem.onBeforeUpdate += OnBeforeInputUpdate;
-
-            /*
-             * Recording happens after the Input System has processed
-             * the current update.
-             */
             InputSystem.onAfterUpdate += OnAfterInputUpdate;
 
             Logger.LogInfo(
@@ -141,7 +149,7 @@ namespace UltraTAS
             );
 
             Logger.LogInfo(
-                "UltraTAS 1.2.4 loaded."
+                "UltraTAS 1.2.6 loaded."
             );
 
             Logger.LogInfo(
@@ -149,11 +157,23 @@ namespace UltraTAS
             );
 
             Logger.LogInfo(
-                "Native weapon actions supported."
+                "Using native InputAction -> InputActionState path."
+            );
+
+            Logger.LogInfo(
+                "Unity frame synchronized TAS playback enabled."
             );
 
             Logger.LogInfo(
                 "Deterministic Unity RNG seed support enabled."
+            );
+
+            Logger.LogInfo(
+                "Weapon switching synchronization enabled."
+            );
+
+            Logger.LogInfo(
+                "TAS identification overlay enabled."
             );
 
             Logger.LogInfo(
@@ -178,6 +198,11 @@ namespace UltraTAS
             InputSystem.onBeforeUpdate -= OnBeforeInputUpdate;
             InputSystem.onAfterUpdate -= OnAfterInputUpdate;
 
+            if (playing)
+            {
+                ReleaseInjectedInput();
+            }
+
             harmony?.UnpatchSelf();
             harmony = null;
 
@@ -188,7 +213,7 @@ namespace UltraTAS
         }
 
         /*
-         * Capture the game's actual PlayerInput object.
+         * Capture ULTRAKILL's actual PlayerInput object.
          */
         [HarmonyPatch(typeof(global::PlayerInput))]
         [HarmonyPatch(MethodType.Constructor)]
@@ -211,12 +236,24 @@ namespace UltraTAS
             );
         }
 
+        /*
+         * One TAS frame per Unity frame.
+         */
         private void OnBeforeInputUpdate()
         {
             if (!playing)
             {
                 return;
             }
+
+            int unityFrame = Time.frameCount;
+
+            if (unityFrame == lastPlaybackUnityFrame)
+            {
+                return;
+            }
+
+            lastPlaybackUnityFrame = unityFrame;
 
             PlayFrame();
         }
@@ -227,6 +264,15 @@ namespace UltraTAS
             {
                 return;
             }
+
+            int unityFrame = Time.frameCount;
+
+            if (unityFrame == lastRecordingUnityFrame)
+            {
+                return;
+            }
+
+            lastRecordingUnityFrame = unityFrame;
 
             RecordFrame();
         }
@@ -264,10 +310,49 @@ namespace UltraTAS
         }
 
         /*
-         * Resolve ULTRAKILL's generated InputAction wrapper.
+         * Permanent TAS indicator.
          *
-         * This is specifically based on the InputActions and
-         * GunControl code you provided.
+         * White text with 75% opacity.
+         */
+        private void OnGUI()
+        {
+            if (!recording && !playing)
+            {
+                return;
+            }
+
+            if (tasStyle == null)
+            {
+                tasStyle = new GUIStyle(GUI.skin.label);
+
+                tasStyle.fontSize = 24;
+                tasStyle.fontStyle = FontStyle.Bold;
+                tasStyle.normal.textColor =
+                    new Color(
+                        1f,
+                        1f,
+                        1f,
+                        0.75f
+                    );
+
+                tasStyle.alignment =
+                    TextAnchor.UpperLeft;
+            }
+
+            GUI.Label(
+                new Rect(
+                    15f,
+                    15f,
+                    100f,
+                    40f
+                ),
+                "TAS",
+                tasStyle
+            );
+        }
+
+        /*
+         * Resolve ULTRAKILL's generated PlayerInput actions.
          */
         private bool ResolvePlayerInput()
         {
@@ -282,9 +367,6 @@ namespace UltraTAS
 
             resolvedActions.Clear();
 
-            /*
-             * MOVEMENT
-             */
             AddAction(
                 "Move",
                 playerInput.Actions.Movement.Move
@@ -295,9 +377,6 @@ namespace UltraTAS
                 playerInput.Actions.Movement.Look
             );
 
-            /*
-             * WEAPON
-             */
             AddAction(
                 "WheelLook",
                 playerInput.Actions.Weapon.WheelLook
@@ -338,12 +417,6 @@ namespace UltraTAS
                 playerInput.Actions.Weapon.LastUsedWeapon
             );
 
-            /*
-             * IMPORTANT:
-             *
-             * GunControl confirms these are the actual native
-             * weapon-selection actions.
-             */
             AddAction(
                 "Slot1",
                 playerInput.Actions.Weapon.Revolver
@@ -389,9 +462,6 @@ namespace UltraTAS
                 playerInput.Actions.Weapon.VariationSlot3
             );
 
-            /*
-             * FIST
-             */
             AddAction(
                 "Punch",
                 playerInput.Actions.Fist.Punch
@@ -407,9 +477,6 @@ namespace UltraTAS
                 playerInput.Actions.Fist.ChangeFist
             );
 
-            /*
-             * MOVEMENT ACTIONS
-             */
             AddAction(
                 "Jump",
                 playerInput.Actions.Movement.Jump
@@ -425,9 +492,6 @@ namespace UltraTAS
                 playerInput.Actions.Movement.Dodge
             );
 
-            /*
-             * UI / HUD
-             */
             AddAction(
                 "Pause",
                 playerInput.Actions.UI.Pause
@@ -479,9 +543,13 @@ namespace UltraTAS
 
             playbackFrame = 0;
 
-            /*
-             * Give this TAS a deterministic random seed.
-             */
+            lastRecordingUnityFrame =
+                Time.frameCount;
+
+            lastPlaybackUnityFrame = -1;
+
+            lastPlaybackSlot = -1;
+
             tasSeed = Environment.TickCount;
 
             UnityEngine.Random.InitState(
@@ -539,14 +607,25 @@ namespace UltraTAS
 
             recording = false;
 
-            /*
-             * Restore RNG before replay starts.
-             */
             UnityEngine.Random.InitState(
                 tasSeed
             );
 
             playbackFrame = 0;
+
+            /*
+             * Start one frame after the current Unity frame.
+             */
+            lastPlaybackUnityFrame =
+                Time.frameCount;
+
+            lastRecordingUnityFrame = -1;
+
+            /*
+             * No forced weapon until a real slot transition
+             * occurs in the recording.
+             */
+            lastPlaybackSlot = -1;
 
             playing = true;
 
@@ -567,7 +646,16 @@ namespace UltraTAS
 
         private void StopPlayback()
         {
+            if (!playing)
+            {
+                return;
+            }
+
             playing = false;
+
+            ReleaseInjectedInput();
+
+            lastPlaybackSlot = -1;
 
             Logger.LogInfo(
                 "TAS playback stopped at frame " +
@@ -578,6 +666,11 @@ namespace UltraTAS
 
         private void ClearRecording()
         {
+            if (playing)
+            {
+                ReleaseInjectedInput();
+            }
+
             frames.Clear();
 
             recording = false;
@@ -586,13 +679,18 @@ namespace UltraTAS
             playbackFrame = 0;
             tasSeed = 0;
 
+            lastPlaybackUnityFrame = -1;
+            lastRecordingUnityFrame = -1;
+
+            lastPlaybackSlot = -1;
+
             Logger.LogInfo(
                 "TAS recording cleared."
             );
         }
 
         /*
-         * Record the state of the native InputActions.
+         * Record the current native InputAction state.
          */
         private void RecordFrame()
         {
@@ -730,13 +828,115 @@ namespace UltraTAS
             TASFrame frame =
                 frames[playbackFrame];
 
+            /*
+             * Inject movement and keyboard-based actions.
+             */
             QueueKeyboardFrame(frame);
 
+            /*
+             * Inject mouse movement AND mouse buttons.
+             *
+             * This is the important PrimaryFire fix.
+             */
             QueueMouseFrame(frame);
+
+            /*
+             * Weapon synchronization happens only on an actual
+             * recorded slot transition.
+             */
+            ProcessWeaponTransition(frame);
 
             playbackFrame++;
         }
 
+        /*
+         * Determine whether this frame represents a weapon-slot
+         * transition.
+         *
+         * No weapon is forced if no slot is selected.
+         *
+         * This is important for levels such as Prelude 0-1,
+         * where the player starts with no weapon.
+         */
+        private void ProcessWeaponTransition(
+            TASFrame frame)
+        {
+            int requestedSlot =
+                GetRequestedSlot(frame);
+
+            /*
+             * No slot requested.
+             *
+             * Do NOT force anything.
+             */
+            if (requestedSlot < 0)
+            {
+                return;
+            }
+
+            /*
+             * Same slot as the previous TAS frame.
+             *
+             * Do NOT force the weapon again.
+             */
+            if (requestedSlot == lastPlaybackSlot)
+            {
+                return;
+            }
+
+            lastPlaybackSlot =
+                requestedSlot;
+
+            /*
+             * The native Slot action has already been injected
+             * above. We intentionally do not continuously call
+             * ForceWeapon here.
+             *
+             * This keeps ULTRAKILL's normal weapon-selection
+             * state machine in control.
+             */
+        }
+
+        /*
+         * Returns the slot represented by a frame.
+         *
+         * -1 means no slot selection.
+         *
+         * If multiple slot buttons somehow occur simultaneously,
+         * the lowest slot wins. Normal gameplay should only
+         * produce one.
+         */
+        private static int GetRequestedSlot(
+            TASFrame frame)
+        {
+            if (frame.Slot1)
+                return 1;
+
+            if (frame.Slot2)
+                return 2;
+
+            if (frame.Slot3)
+                return 3;
+
+            if (frame.Slot4)
+                return 4;
+
+            if (frame.Slot5)
+                return 5;
+
+            if (frame.Slot6)
+                return 6;
+
+            return -1;
+        }
+
+        /*
+         * Keyboard-side actions.
+         *
+         * Fire1 and Fire2 are intentionally NOT here.
+         * They are mouse controls and are handled by
+         * QueueMouseFrame().
+         */
         private void QueueKeyboardFrame(
             TASFrame frame)
         {
@@ -772,20 +972,6 @@ namespace UltraTAS
                 WriteButtonActionToEvent(
                     "Hook",
                     frame.Hook,
-                    eventPtr,
-                    keyboard
-                );
-
-                WriteButtonActionToEvent(
-                    "Fire1",
-                    frame.Fire1,
-                    eventPtr,
-                    keyboard
-                );
-
-                WriteButtonActionToEvent(
-                    "Fire2",
-                    frame.Fire2,
                     eventPtr,
                     keyboard
                 );
@@ -936,6 +1122,12 @@ namespace UltraTAS
             }
         }
 
+        /*
+         * Mouse-side actions.
+         *
+         * PrimaryFire and SecondaryFire are here because
+         * ULTRAKILL normally binds them to mouse controls.
+         */
         private void QueueMouseFrame(
             TASFrame frame)
         {
@@ -968,9 +1160,125 @@ namespace UltraTAS
                     mouse
                 );
 
+                WriteButtonActionToEvent(
+                    "Fire1",
+                    frame.Fire1,
+                    eventPtr,
+                    mouse
+                );
+
+                WriteButtonActionToEvent(
+                    "Fire2",
+                    frame.Fire2,
+                    eventPtr,
+                    mouse
+                );
+
                 InputSystem.QueueEvent(
                     eventPtr
                 );
+            }
+        }
+
+        /*
+         * Release all injected controls.
+         */
+        private void ReleaseInjectedInput()
+        {
+            Keyboard? keyboard =
+                Keyboard.current;
+
+            if (keyboard != null)
+            {
+                using (
+                    StateEvent.From(
+                        keyboard,
+                        out InputEventPtr eventPtr
+                    )
+                )
+                {
+                    foreach (
+                        string actionName
+                        in PlayerInputActions)
+                    {
+                        if (
+                            actionName == "Move" ||
+                            actionName == "Look" ||
+                            actionName == "WheelLook" ||
+                            actionName == "Fire1" ||
+                            actionName == "Fire2")
+                        {
+                            continue;
+                        }
+
+                        WriteButtonActionToEvent(
+                            actionName,
+                            false,
+                            eventPtr,
+                            keyboard
+                        );
+                    }
+
+                    WriteActionToEvent(
+                        "Move",
+                        Vector2.zero,
+                        eventPtr,
+                        keyboard
+                    );
+
+                    InputSystem.QueueEvent(
+                        eventPtr
+                    );
+                }
+            }
+
+            Mouse? mouse =
+                Mouse.current;
+
+            if (mouse != null)
+            {
+                using (
+                    StateEvent.From(
+                        mouse,
+                        out InputEventPtr eventPtr
+                    )
+                )
+                {
+                    WriteActionToEvent(
+                        "Look",
+                        Vector2.zero,
+                        eventPtr,
+                        mouse
+                    );
+
+                    WriteActionToEvent(
+                        "WheelLook",
+                        Vector2.zero,
+                        eventPtr,
+                        mouse
+                    );
+
+                    /*
+                     * Explicitly release mouse fire buttons.
+                     */
+                    WriteButtonActionToEvent(
+                        "Fire1",
+                        false,
+                        eventPtr,
+                        mouse
+                    );
+
+                    WriteButtonActionToEvent(
+                        "Fire2",
+                        false,
+                        eventPtr,
+                        mouse
+                    );
+
+                    InputSystem.QueueEvent(
+                        eventPtr
+                    );
+                }
             }
         }
 
@@ -1162,7 +1470,7 @@ namespace UltraTAS
                 )
                 {
                     writer.WriteLine(
-                        "UltraTAS v4"
+                        "UltraTAS v6"
                     );
 
                     writer.WriteLine(
