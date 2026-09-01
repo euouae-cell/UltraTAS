@@ -11,7 +11,7 @@ using System.IO;
 
 namespace UltraTAS
 {
-    [BepInPlugin("OWATAMSATE.UltraTAS", "UltraTAS", "1.2.0")]
+    [BepInPlugin("OWATAMSATE.UltraTAS", "UltraTAS", "1.2.1")]
     public class UltraTAS : BaseUnityPlugin
     {
         private sealed class TASFrame
@@ -58,15 +58,18 @@ namespace UltraTAS
 
         private readonly List<TASFrame> frames = new List<TASFrame>();
         private readonly Dictionary<string, InputAction> resolvedActions = new Dictionary<string, InputAction>();
-        private Harmony harmony;
+        private Harmony? harmony;
         private bool recording;
         private bool playing;
         private int playbackFrame;
-        private string tasPath;
-        private global::PlayerInput playerInput;
+        private string tasPath = string.Empty;
+        private global::PlayerInput? playerInput;
+
+        private static UltraTAS? Instance { get; set; }
 
         private void Awake()
         {
+            Instance = this;
             tasPath = Path.Combine(Paths.ConfigPath, "ultratas.tas");
 
             harmony = new Harmony("OWATAMSATE.UltraTAS");
@@ -76,7 +79,7 @@ namespace UltraTAS
             InputSystem.onAfterUpdate += OnAfterInputUpdate;
 
             Logger.LogInfo("========================================");
-            Logger.LogInfo("UltraTAS 1.2.0 loaded.");
+            Logger.LogInfo("UltraTAS 1.2.1 loaded.");
             Logger.LogInfo("Using ULTRAKILL's native PlayerInput instance.");
             Logger.LogInfo("F6 = start/stop recording | F7 = playback | F8 = clear");
             Logger.LogInfo("========================================");
@@ -87,8 +90,11 @@ namespace UltraTAS
             InputSystem.onBeforeUpdate -= OnBeforeInputUpdate;
             InputSystem.onAfterUpdate -= OnAfterInputUpdate;
 
-            if (harmony != null)
-                harmony.UnpatchSelf();
+            harmony?.UnpatchSelf();
+            harmony = null;
+
+            if (ReferenceEquals(Instance, this))
+                Instance = null;
         }
 
         // Harmony constructor patch stores the actual PlayerInput instance created by the game.
@@ -102,29 +108,25 @@ namespace UltraTAS
             }
         }
 
-        private static UltraTAS Instance { get; set; }
-
         private void SetPlayerInput(global::PlayerInput input)
         {
             playerInput = input;
             Logger.LogInfo("UltraTAS: captured ULTRAKILL PlayerInput instance.");
         }
 
-        // Playback is injected before the Input System processes the update. This is much
-        // closer to the game's real InputActionState timing than writing from MonoBehaviour.Update.
-        private void OnBeforeInputUpdate(InputUpdateType updateType)
+        // This version of Unity's Input System exposes these events as parameterless Action events.
+        // Playback/recording therefore runs directly from the before/after update callbacks.
+        private void OnBeforeInputUpdate()
         {
-            if (!playing || updateType == InputUpdateType.None)
+            if (!playing)
                 return;
 
             PlayFrame();
         }
 
-        // Recording happens after the Input System update, so ReadValue() sees the same
-        // resolved composite/processor state that gameplay sees.
-        private void OnAfterInputUpdate(InputUpdateType updateType)
+        private void OnAfterInputUpdate()
         {
-            if (!recording || updateType == InputUpdateType.None)
+            if (!recording)
                 return;
 
             RecordFrame();
@@ -158,9 +160,6 @@ namespace UltraTAS
 
             resolvedActions.Clear();
 
-            // These are the exact InputAction objects owned by the game's generated
-            // InputActions class. PlayerInput.RebuildActions() wraps these same actions
-            // in its InputActionState fields.
             AddAction("Move", playerInput.Actions.Movement.Move);
             AddAction("Look", playerInput.Actions.Movement.Look);
             AddAction("WheelLook", playerInput.Actions.Weapon.WheelLook);
@@ -193,7 +192,7 @@ namespace UltraTAS
             return resolvedActions.Count > 0;
         }
 
-        private void AddAction(string name, InputAction action)
+        private void AddAction(string name, InputAction? action)
         {
             if (action != null)
                 resolvedActions[name] = action;
@@ -293,8 +292,7 @@ namespace UltraTAS
 
         private Vector2 ReadVector2(string actionName)
         {
-            InputAction action;
-            if (!resolvedActions.TryGetValue(actionName, out action) || action.valueType != typeof(Vector2))
+            if (!resolvedActions.TryGetValue(actionName, out InputAction? action) || action == null)
                 return Vector2.zero;
 
             return action.ReadValue<Vector2>();
@@ -302,8 +300,7 @@ namespace UltraTAS
 
         private bool ReadButton(string actionName)
         {
-            InputAction action;
-            if (!resolvedActions.TryGetValue(actionName, out action))
+            if (!resolvedActions.TryGetValue(actionName, out InputAction? action) || action == null)
                 return false;
 
             return action.IsPressed();
@@ -351,13 +348,12 @@ namespace UltraTAS
 
         private void WriteVector2(string actionName, Vector2 value)
         {
-            InputAction action;
-            if (!resolvedActions.TryGetValue(actionName, out action))
+            if (!resolvedActions.TryGetValue(actionName, out InputAction? action) || action == null)
                 return;
 
             foreach (InputControl control in action.controls)
             {
-                Vector2Control vector2 = control as Vector2Control;
+                Vector2Control? vector2 = control as Vector2Control;
                 if (vector2 != null)
                 {
                     InputState.Change(vector2, value);
@@ -365,8 +361,6 @@ namespace UltraTAS
                 }
             }
 
-            // A 2D Vector2 composite exposes button/axis parts instead of a Vector2Control.
-            // Write those parts so the real InputAction composite resolves the value.
             bool wroteComposite = false;
             foreach (InputControl control in action.controls)
             {
@@ -379,7 +373,7 @@ namespace UltraTAS
                 else if (path.EndsWith("/d") || path.EndsWith("/right")) amount = Mathf.Max(0f, value.x);
                 else continue;
 
-                InputControl<float> floatControl = control as InputControl<float>;
+                InputControl<float>? floatControl = control as InputControl<float>;
                 if (floatControl != null)
                 {
                     InputState.Change(floatControl, amount);
@@ -393,21 +387,20 @@ namespace UltraTAS
 
         private void WriteButton(string actionName, bool pressed)
         {
-            InputAction action;
-            if (!resolvedActions.TryGetValue(actionName, out action))
+            if (!resolvedActions.TryGetValue(actionName, out InputAction? action) || action == null)
                 return;
 
             float value = pressed ? 1f : 0f;
             foreach (InputControl control in action.controls)
             {
-                ButtonControl button = control as ButtonControl;
+                ButtonControl? button = control as ButtonControl;
                 if (button != null)
                 {
                     InputState.Change(button, value);
                     return;
                 }
 
-                InputControl<float> floatControl = control as InputControl<float>;
+                InputControl<float>? floatControl = control as InputControl<float>;
                 if (floatControl != null)
                 {
                     InputState.Change(floatControl, value);
