@@ -1,4 +1,3 @@
-```csharp
 using BepInEx;
 using HarmonyLib;
 using UnityEngine;
@@ -1083,4 +1082,3 @@ namespace UltraTAS
         }
     }
 }
-```
