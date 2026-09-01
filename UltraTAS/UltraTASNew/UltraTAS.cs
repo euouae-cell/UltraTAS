@@ -1,4 +1,5 @@
 using BepInEx;
+using HarmonyLib;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.LowLevel;
@@ -10,7 +11,7 @@ using System.IO;
 
 namespace UltraTAS
 {
-    [BepInPlugin("OWATAMSATE.UltraTAS", "UltraTAS", "1.1.0")]
+    [BepInPlugin("OWATAMSATE.UltraTAS", "UltraTAS", "1.2.0")]
     public class UltraTAS : BaseUnityPlugin
     {
         private sealed class TASFrame
@@ -34,32 +35,20 @@ namespace UltraTAS
             "Slot1", "Slot2", "Slot3", "Slot4", "Slot5", "Slot6"
         };
 
-        // Recovered Unity Input System findings:
-        // InputActionState is the live resolved state for maps, controls, composites,
-        // interactions, processors and action phases. TAS should feed that existing state.
-        // InputState.Change(control, value) reaches InputSystem.s_Manager.UpdateState()
-        // using the control's device-relative state offset, avoiding OS-level injection.
-        // ReadValue<T>() evaluates composites and applies binding processors.
-        // Composite part evaluation chooses the strongest matching control by magnitude.
-        // InputActionState registers state-change monitors for enabled controls.
-        // Interaction timers and phase changes belong to the normal action pipeline.
-        // Do not directly edit TriggerState to fake Started/Performed/Canceled.
+        // ULTRAKILL's PlayerInput is NOT UnityEngine.InputSystem.PlayerInput.
+        // It is a normal game class which owns the generated InputActions instance
+        // and wraps individual actions in the game's InputActionState class.
         //
-        // Recovered InputManager.UpdateState findings:
-        // InputState.Change() ultimately calls InputManager.UpdateState(). That method:
-        //  1. Gets the device's front state buffer and sorts state-change monitors.
-        //  2. Runs ProcessStateChangeMonitors() against the changed device-state region.
-        //  3. Compares the new region with the front buffer (respecting noisy-device masks).
-        //  4. Flips/updates the device state buffers for the requested InputUpdateType.
-        //  5. Invokes onDeviceStateChange callbacks.
-        //  6. Fires state-change notifications when monitors were signalled.
-        // Therefore TAS input written with InputState.Change is not merely changing a
-        // value returned by ReadValue(); it enters the Input System's actual device-state
-        // update path. This is important for action callbacks, button transitions,
-        // interactions and controls monitored by the existing PlayerInput pipeline.
-        // Repeated Change() calls on controls belonging to the same device are still
-        // separate state updates, so deterministic frame injection will eventually need
-        // careful batching/timing rather than assuming one Change() equals one game frame.
+        // We therefore capture the game's actual PlayerInput instance instead of
+        // trying to FindObjectOfType<UnityEngine.InputSystem.PlayerInput>().
+        // The actions below come directly from PlayerInput.Actions, meaning TAS
+        // reads/writes the same Unity Input System actions the game uses.
+        //
+        // InputState.Change(control, value) enters Unity Input System's device-state
+        // update path. It is deliberately used here instead of OS-level keyboard
+        // injection or directly modifying the game's InputActionState fields.
+        // This lets the normal action pipeline process control changes, button
+        // transitions, composites, processors and interactions.
         //
         // Recovered GroundCheck findings:
         // UpdateState() is frame-driven. onGround follows touchingGround unless forced off.
@@ -69,21 +58,26 @@ namespace UltraTAS
 
         private readonly List<TASFrame> frames = new List<TASFrame>();
         private readonly Dictionary<string, InputAction> resolvedActions = new Dictionary<string, InputAction>();
+        private Harmony harmony;
         private bool recording;
         private bool playing;
         private int playbackFrame;
         private string tasPath;
-        private PlayerInput playerInput;
+        private global::PlayerInput playerInput;
 
         private void Awake()
         {
             tasPath = Path.Combine(Paths.ConfigPath, "ultratas.tas");
+
+            harmony = new Harmony("OWATAMSATE.UltraTAS");
+            harmony.PatchAll();
+
             InputSystem.onBeforeUpdate += OnBeforeInputUpdate;
             InputSystem.onAfterUpdate += OnAfterInputUpdate;
 
             Logger.LogInfo("========================================");
-            Logger.LogInfo("UltraTAS 1.1.0 loaded.");
-            Logger.LogInfo("Native Unity Input System TAS bridge enabled.");
+            Logger.LogInfo("UltraTAS 1.2.0 loaded.");
+            Logger.LogInfo("Using ULTRAKILL's native PlayerInput instance.");
             Logger.LogInfo("F6 = start/stop recording | F7 = playback | F8 = clear");
             Logger.LogInfo("========================================");
         }
@@ -92,6 +86,28 @@ namespace UltraTAS
         {
             InputSystem.onBeforeUpdate -= OnBeforeInputUpdate;
             InputSystem.onAfterUpdate -= OnAfterInputUpdate;
+
+            if (harmony != null)
+                harmony.UnpatchSelf();
+        }
+
+        // Harmony constructor patch stores the actual PlayerInput instance created by the game.
+        [HarmonyPatch(typeof(global::PlayerInput))]
+        [HarmonyPatch(MethodType.Constructor)]
+        private static class PlayerInputConstructorPatch
+        {
+            private static void Postfix(global::PlayerInput __instance)
+            {
+                Instance?.SetPlayerInput(__instance);
+            }
+        }
+
+        private static UltraTAS Instance { get; set; }
+
+        private void SetPlayerInput(global::PlayerInput input)
+        {
+            playerInput = input;
+            Logger.LogInfo("UltraTAS: captured ULTRAKILL PlayerInput instance.");
         }
 
         // Playback is injected before the Input System processes the update. This is much
@@ -134,33 +150,55 @@ namespace UltraTAS
 
         private bool ResolvePlayerInput()
         {
-            if (playerInput == null || playerInput.gameObject == null)
-                playerInput = FindObjectOfType<PlayerInput>();
-
             if (playerInput == null)
             {
-                Logger.LogWarning("UltraTAS: no PlayerInput component found.");
-                return false;
-            }
-
-            if (playerInput.actions == null)
-            {
-                Logger.LogWarning("UltraTAS: PlayerInput has no InputActionAsset.");
+                Logger.LogWarning("UltraTAS: ULTRAKILL PlayerInput instance has not been captured yet.");
                 return false;
             }
 
             resolvedActions.Clear();
-            foreach (string actionName in PlayerInputActions)
-            {
-                InputAction action = playerInput.actions.FindAction(actionName, false);
-                if (action != null)
-                    resolvedActions[actionName] = action;
-                else
-                    Logger.LogWarning("UltraTAS: action not found: " + actionName);
-            }
 
-            Logger.LogInfo("UltraTAS: resolved " + resolvedActions.Count + "/" + PlayerInputActions.Length + " actions.");
+            // These are the exact InputAction objects owned by the game's generated
+            // InputActions class. PlayerInput.RebuildActions() wraps these same actions
+            // in its InputActionState fields.
+            AddAction("Move", playerInput.Actions.Movement.Move);
+            AddAction("Look", playerInput.Actions.Movement.Look);
+            AddAction("WheelLook", playerInput.Actions.Weapon.WheelLook);
+            AddAction("Punch", playerInput.Actions.Fist.Punch);
+            AddAction("Hook", playerInput.Actions.Fist.Hook);
+            AddAction("Fire1", playerInput.Actions.Weapon.PrimaryFire);
+            AddAction("Fire2", playerInput.Actions.Weapon.SecondaryFire);
+            AddAction("Jump", playerInput.Actions.Movement.Jump);
+            AddAction("Slide", playerInput.Actions.Movement.Slide);
+            AddAction("Dodge", playerInput.Actions.Movement.Dodge);
+            AddAction("ChangeFist", playerInput.Actions.Fist.ChangeFist);
+            AddAction("NextVariation", playerInput.Actions.Weapon.NextVariation);
+            AddAction("PreviousVariation", playerInput.Actions.Weapon.PreviousVariation);
+            AddAction("NextWeapon", playerInput.Actions.Weapon.NextWeapon);
+            AddAction("PrevWeapon", playerInput.Actions.Weapon.PreviousWeapon);
+            AddAction("LastWeapon", playerInput.Actions.Weapon.LastUsedWeapon);
+            AddAction("SelectVariant1", playerInput.Actions.Weapon.VariationSlot1);
+            AddAction("SelectVariant2", playerInput.Actions.Weapon.VariationSlot2);
+            AddAction("SelectVariant3", playerInput.Actions.Weapon.VariationSlot3);
+            AddAction("Pause", playerInput.Actions.UI.Pause);
+            AddAction("Stats", playerInput.Actions.HUD.Stats);
+            AddAction("Slot1", playerInput.Actions.Weapon.Revolver);
+            AddAction("Slot2", playerInput.Actions.Weapon.Shotgun);
+            AddAction("Slot3", playerInput.Actions.Weapon.Nailgun);
+            AddAction("Slot4", playerInput.Actions.Weapon.Railcannon);
+            AddAction("Slot5", playerInput.Actions.Weapon.RocketLauncher);
+            AddAction("Slot6", playerInput.Actions.Weapon.SpawnerArm);
+
+            Logger.LogInfo("UltraTAS: resolved " + resolvedActions.Count + "/" + PlayerInputActions.Length + " native PlayerInput actions.");
             return resolvedActions.Count > 0;
+        }
+
+        private void AddAction(string name, InputAction action)
+        {
+            if (action != null)
+                resolvedActions[name] = action;
+            else
+                Logger.LogWarning("UltraTAS: native action is null: " + name);
         }
 
         private void StartRecording()
@@ -328,8 +366,7 @@ namespace UltraTAS
             }
 
             // A 2D Vector2 composite exposes button/axis parts instead of a Vector2Control.
-            // Write those parts through InputState.Change so InputActionState evaluates the
-            // composite normally on the input update.
+            // Write those parts so the real InputAction composite resolves the value.
             bool wroteComposite = false;
             foreach (InputControl control in action.controls)
             {
