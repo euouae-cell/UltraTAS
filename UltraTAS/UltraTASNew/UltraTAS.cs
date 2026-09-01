@@ -11,7 +11,7 @@ using System.IO;
 
 namespace UltraTAS
 {
-    [BepInPlugin("OWATAMSATE.UltraTAS", "UltraTAS", "1.2.2")]
+    [BepInPlugin("OWATAMSATE.UltraTAS", "UltraTAS", "1.2.3")]
     public class UltraTAS : BaseUnityPlugin
     {
         private sealed class TASFrame
@@ -37,6 +37,7 @@ namespace UltraTAS
         };
 
         private readonly List<TASFrame> frames = new List<TASFrame>();
+
         private readonly Dictionary<string, InputAction> resolvedActions =
             new Dictionary<string, InputAction>();
 
@@ -44,6 +45,7 @@ namespace UltraTAS
 
         private bool recording;
         private bool playing;
+
         private int playbackFrame;
 
         private string tasPath = string.Empty;
@@ -68,10 +70,11 @@ namespace UltraTAS
             InputSystem.onAfterUpdate += OnAfterInputUpdate;
 
             Logger.LogInfo("========================================");
-            Logger.LogInfo("UltraTAS 1.2.2 loaded.");
+            Logger.LogInfo("UltraTAS 1.2.3 loaded.");
             Logger.LogInfo("Using ULTRAKILL's native PlayerInput instance.");
             Logger.LogInfo("F6 = start/stop recording | F7 = playback | F8 = clear");
-            Logger.LogInfo("Playback uses Unity Input System state events.");
+            Logger.LogInfo("Replay uses native Unity Input System state events.");
+            Logger.LogInfo("Keyboard AND mouse bindings are replayed.");
             Logger.LogInfo("========================================");
         }
 
@@ -268,7 +271,8 @@ namespace UltraTAS
             SaveRecording();
 
             Logger.LogInfo(
-                "TAS recording stopped. Frames: " + frames.Count
+                "TAS recording stopped. Frames: " +
+                frames.Count
             );
         }
 
@@ -291,7 +295,8 @@ namespace UltraTAS
             playbackFrame = 0;
 
             Logger.LogInfo(
-                "TAS playback started. Frames: " + frames.Count
+                "TAS playback started. Frames: " +
+                frames.Count
             );
         }
 
@@ -330,15 +335,19 @@ namespace UltraTAS
 
                 Punch = ReadButton("Punch"),
                 Hook = ReadButton("Hook"),
+
                 Fire1 = ReadButton("Fire1"),
                 Fire2 = ReadButton("Fire2"),
+
                 Jump = ReadButton("Jump"),
                 Slide = ReadButton("Slide"),
                 Dodge = ReadButton("Dodge"),
+
                 ChangeFist = ReadButton("ChangeFist"),
 
                 NextVariation = ReadButton("NextVariation"),
                 PreviousVariation = ReadButton("PreviousVariation"),
+
                 NextWeapon = ReadButton("NextWeapon"),
                 PrevWeapon = ReadButton("PrevWeapon"),
                 LastWeapon = ReadButton("LastWeapon"),
@@ -398,19 +407,15 @@ namespace UltraTAS
             TASFrame frame = frames[playbackFrame];
 
             /*
-             * IMPORTANT:
+             * The replay frame represents the complete input state for
+             * this frame.
              *
-             * Do NOT use InputState.Change() here.
+             * We queue the state onto the actual Unity Input System
+             * devices instead of modifying KeyControls directly.
              *
-             * Keyboard keys such as W/A/S/D are bitfield controls.
-             * InputState.Change() cannot write those individual controls,
-             * which was the source of:
-             *
-             * "Cannot change state of bitfield control
-             *  'Key:/Keyboard/w'"
-             *
-             * Instead we create StateEvents for the actual devices and
-             * write the controls into those events.
+             * Unity then compares this state against the previous
+             * device state, producing the appropriate press/release
+             * transitions.
              */
 
             QueueKeyboardFrame(frame);
@@ -626,6 +631,9 @@ namespace UltraTAS
                 )
             )
             {
+                /*
+                 * Camera
+                 */
                 WriteActionToEvent(
                     "Look",
                     frame.Look,
@@ -636,6 +644,90 @@ namespace UltraTAS
                 WriteActionToEvent(
                     "WheelLook",
                     frame.WheelLook,
+                    eventPtr,
+                    mouse
+                );
+
+                /*
+                 * IMPORTANT FIX:
+                 *
+                 * Fire1/Fire2 were previously only written to the
+                 * keyboard StateEvent.
+                 *
+                 * If ULTRAKILL's PrimaryFire / SecondaryFire action
+                 * is bound to Mouse.leftButton / Mouse.rightButton,
+                 * the recorded value therefore never reached the
+                 * actual mouse device.
+                 *
+                 * Weapon-related actions are also sent here. Only
+                 * controls belonging to Mouse are modified.
+                 */
+                WriteButtonActionToEvent(
+                    "Fire1",
+                    frame.Fire1,
+                    eventPtr,
+                    mouse
+                );
+
+                WriteButtonActionToEvent(
+                    "Fire2",
+                    frame.Fire2,
+                    eventPtr,
+                    mouse
+                );
+
+                WriteButtonActionToEvent(
+                    "NextWeapon",
+                    frame.NextWeapon,
+                    eventPtr,
+                    mouse
+                );
+
+                WriteButtonActionToEvent(
+                    "PrevWeapon",
+                    frame.PrevWeapon,
+                    eventPtr,
+                    mouse
+                );
+
+                WriteButtonActionToEvent(
+                    "NextVariation",
+                    frame.NextVariation,
+                    eventPtr,
+                    mouse
+                );
+
+                WriteButtonActionToEvent(
+                    "PreviousVariation",
+                    frame.PreviousVariation,
+                    eventPtr,
+                    mouse
+                );
+
+                WriteButtonActionToEvent(
+                    "LastWeapon",
+                    frame.LastWeapon,
+                    eventPtr,
+                    mouse
+                );
+
+                WriteButtonActionToEvent(
+                    "SelectVariant1",
+                    frame.SelectVariant1,
+                    eventPtr,
+                    mouse
+                );
+
+                WriteButtonActionToEvent(
+                    "SelectVariant2",
+                    frame.SelectVariant2,
+                    eventPtr,
+                    mouse
+                );
+
+                WriteButtonActionToEvent(
+                    "SelectVariant3",
+                    frame.SelectVariant3,
                     eventPtr,
                     mouse
                 );
@@ -674,13 +766,6 @@ namespace UltraTAS
 
                     return;
                 }
-
-                /*
-                 * Handle WASD-style Vector2 composites.
-                 *
-                 * These are KeyControls, so we write them into the
-                 * Keyboard StateEvent instead of using InputState.Change().
-                 */
 
                 float amount;
 
@@ -769,14 +854,6 @@ namespace UltraTAS
             float value,
             InputEventPtr eventPtr)
         {
-            /*
-             * This is the important difference from the old version.
-             *
-             * WriteValueIntoEvent() modifies the temporary StateEvent.
-             * It does NOT try to directly mutate a bitfield KeyControl
-             * through InputState.Change().
-             */
-
             if (control is InputControl<float> floatControl)
             {
                 floatControl.WriteValueIntoEvent(
@@ -806,6 +883,7 @@ namespace UltraTAS
                 )
                 {
                     writer.WriteLine("UltraTAS v2");
+
                     writer.WriteLine(
                         "Frames=" + frames.Count
                     );
@@ -830,7 +908,8 @@ namespace UltraTAS
             catch (Exception ex)
             {
                 Logger.LogError(
-                    "UltraTAS: failed to save TAS: " + ex
+                    "UltraTAS: failed to save TAS: " +
+                    ex
                 );
             }
         }
