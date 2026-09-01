@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
@@ -16,8 +16,12 @@
       <HintPath>C:\Users\chara\AppData\Roaming\r2modmanPlus-local\ULTRAKILL\profiles\Default\BepInEx\core\BepInEx.dll</HintPath>
     </Reference>
 
-    <Reference Include="Configgy">
-      <HintPath>C:\Users\chara\AppData\Roaming\r2modmanPlus-local\ULTRAKILL\profiles\Default\BepInEx\plugins\Hydraxous-Configgy\Configgy.dll</HintPath>
+    <Reference Include="0Harmony">
+      <HintPath>C:\Users\chara\AppData\Roaming\r2modmanPlus-local\ULTRAKILL\profiles\Default\BepInEx\core\0Harmony.dll</HintPath>
+    </Reference>
+
+    <Reference Include="Unity.InputSystem">
+      <HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\ULTRAKILL_Data\Managed\Unity.InputSystem.dll</HintPath>
     </Reference>
 
     <Reference Include="UnityEngine">
