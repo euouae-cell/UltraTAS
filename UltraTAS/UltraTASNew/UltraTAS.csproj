@@ -32,6 +32,10 @@
   <HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\ULTRAKILL_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
 </Reference>
 
+<Reference Include="UnityEngine.PhysicsModule">
+  <HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\ULTRAKILL_Data\Managed\UnityEngine.PhysicsModule.dll</HintPath>
+</Reference>
+
 <Reference Include="UnityEngine.IMGUIModule">
   <HintPath>D:\Program Files (x86)\Steam\steamapps\common\ULTRAKILL\ULTRAKILL_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
 </Reference>
