@@ -11,7 +11,7 @@ using System.IO;
 
 namespace UltraTAS
 {
-    [BepInPlugin("ti0z1.UltraTAS", "UltraTAS", "1.3.2")]
+    [BepInPlugin("ti0z1.UltraTAS", "UltraTAS", "1.3.3")]
     public class UltraTAS : BaseUnityPlugin
     {
         private sealed class TASFrame
@@ -44,6 +44,11 @@ namespace UltraTAS
         private string tasPath = string.Empty;
         private int lastPlaybackSlot = -1;
 
+        // Input is staged across Input System update boundaries. This prevents a
+        // one-frame press/release from being lost while preserving exact TAS timing.
+        private bool playbackInputQueued;
+        private int queuedPlaybackFrame = -1;
+
         private const float PositionTolerance = 0.015f;
         private const float SoftCorrectionDistance = 0.20f;
         private const float HardCorrectionDistance = 1.50f;
@@ -64,7 +69,7 @@ namespace UltraTAS
             harmony.PatchAll();
             InputSystem.onBeforeUpdate += OnBeforeInputUpdate;
             InputSystem.onAfterUpdate += OnAfterInputUpdate;
-            Logger.LogInfo("UltraTAS 1.3.2 loaded. NewMovement trajectory synchronization enabled.");
+            Logger.LogInfo("UltraTAS 1.3.3 loaded. Exact mouse press/release staging enabled.");
             Logger.LogInfo("F6 = start/stop recording | F7 = playback | F8 = clear");
         }
 
@@ -121,11 +126,24 @@ namespace UltraTAS
 
         private void OnAfterInputUpdate()
         {
-            if (!recording) return;
-            int unityFrame = Time.frameCount;
-            if (unityFrame == lastRecordingUnityFrame) return;
-            lastRecordingUnityFrame = unityFrame;
-            RecordFrame();
+            if (recording)
+            {
+                int unityFrame = Time.frameCount;
+                if (unityFrame != lastRecordingUnityFrame)
+                {
+                    lastRecordingUnityFrame = unityFrame;
+                    RecordFrame();
+                }
+            }
+
+            // The event queued in onBeforeUpdate has now crossed the Input System
+            // update boundary. Keep the bookkeeping explicit so a press/release
+            // transition is never treated as an OS-style transient click.
+            if (playing && playbackInputQueued)
+            {
+                playbackInputQueued = false;
+                queuedPlaybackFrame = -1;
+            }
         }
 
         private void Update()
@@ -217,6 +235,8 @@ namespace UltraTAS
             lastRecordingUnityFrame = Time.frameCount;
             lastPlaybackUnityFrame = -1;
             lastPlaybackSlot = -1;
+            playbackInputQueued = false;
+            queuedPlaybackFrame = -1;
             tasSeed = Environment.TickCount;
             UnityEngine.Random.InitState(tasSeed);
             recording = true;
@@ -244,6 +264,8 @@ namespace UltraTAS
             lastPlaybackUnityFrame = Time.frameCount;
             lastRecordingUnityFrame = -1;
             lastPlaybackSlot = -1;
+            playbackInputQueued = false;
+            queuedPlaybackFrame = -1;
             playing = true;
             Logger.LogInfo("TAS playback started. Frames: " + frames.Count + ", Seed: " + tasSeed);
         }
@@ -252,6 +274,8 @@ namespace UltraTAS
         {
             if (!playing) return;
             playing = false;
+            playbackInputQueued = false;
+            queuedPlaybackFrame = -1;
             ReleaseInjectedInput();
             lastPlaybackSlot = -1;
             Logger.LogInfo("TAS playback stopped at frame " + playbackFrame + ".");
@@ -268,6 +292,8 @@ namespace UltraTAS
             lastPlaybackUnityFrame = -1;
             lastRecordingUnityFrame = -1;
             lastPlaybackSlot = -1;
+            playbackInputQueued = false;
+            queuedPlaybackFrame = -1;
             Logger.LogInfo("TAS recording cleared.");
         }
 
@@ -343,8 +369,15 @@ namespace UltraTAS
             }
             TASFrame frame = frames[playbackFrame];
             ApplyTrajectoryCorrection(frame);
+
+            // Queue exactly one complete device state for this TAS frame. The
+            // press/release state is never delayed or stretched; it simply crosses
+            // the same Input System update boundary as real input.
             QueueKeyboardFrame(frame);
             QueueMouseFrame(frame);
+            playbackInputQueued = true;
+            queuedPlaybackFrame = playbackFrame;
+
             ProcessWeaponTransition(frame);
             playbackFrame++;
         }
