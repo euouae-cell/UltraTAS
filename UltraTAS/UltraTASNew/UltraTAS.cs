@@ -11,7 +11,7 @@ using System.IO;
 
 namespace UltraTAS
 {
-    [BepInPlugin("ti0z1.UltraTAS", "UltraTAS", "1.3.3")]
+    [BepInPlugin("ti0z1.UltraTAS", "UltraTAS", "1.3.4")]
     public class UltraTAS : BaseUnityPlugin
     {
         private sealed class TASFrame
@@ -44,19 +44,16 @@ namespace UltraTAS
         private string tasPath = string.Empty;
         private int lastPlaybackSlot = -1;
 
-        // Input is staged across Input System update boundaries. This prevents a
-        // one-frame press/release from being lost while preserving exact TAS timing.
         private bool playbackInputQueued;
         private int queuedPlaybackFrame = -1;
+        private bool physicsPatchActive;
+        private int lastPhysicsFrame = -1;
 
         private const float PositionTolerance = 0.015f;
-        private const float SoftCorrectionDistance = 0.20f;
-        private const float HardCorrectionDistance = 1.50f;
-        private const float SoftCorrectionStrength = 0.30f;
-        private const float HardCorrectionStrength = 0.70f;
-        private const float MaxPositionCorrectionPerFrame = 0.075f;
-        private const float VelocityCorrectionStrength = 0.18f;
-        private const float MaxVelocityCorrection = 2.5f;
+        private const float MaxPhysicsCorrection = 0.045f;
+        private const float MaxPhysicsVelocityCorrection = 1.5f;
+        private const float PositionCorrectionGain = 0.22f;
+        private const float VelocityCorrectionGain = 0.10f;
 
         private GUIStyle? tasStyle;
         private static UltraTAS? Instance { get; set; }
@@ -69,7 +66,7 @@ namespace UltraTAS
             harmony.PatchAll();
             InputSystem.onBeforeUpdate += OnBeforeInputUpdate;
             InputSystem.onAfterUpdate += OnAfterInputUpdate;
-            Logger.LogInfo("UltraTAS 1.3.3 loaded. Exact mouse press/release staging enabled.");
+            Logger.LogInfo("UltraTAS 1.3.4 loaded. Physics-boundary player synchronization enabled.");
             Logger.LogInfo("F6 = start/stop recording | F7 = playback | F8 = clear");
         }
 
@@ -88,6 +85,15 @@ namespace UltraTAS
         private static class PlayerInputConstructorPatch
         {
             private static void Postfix(global::PlayerInput __instance) => Instance?.SetPlayerInput(__instance);
+        }
+
+        [HarmonyPatch(typeof(global::NewMovement), "FixedUpdate")]
+        private static class NewMovementFixedUpdatePatch
+        {
+            private static void Postfix(global::NewMovement __instance)
+            {
+                Instance?.OnPlayerPhysicsTick(__instance);
+            }
         }
 
         private void SetPlayerInput(global::PlayerInput input)
@@ -115,6 +121,30 @@ namespace UltraTAS
             }
         }
 
+        private void OnPlayerPhysicsTick(global::NewMovement movement)
+        {
+            if (!playing) return;
+            if (!ReferenceEquals(movement, newMovement))
+            {
+                newMovement = movement;
+                playerBody = movement.rb;
+                playerTransform = movement.transform;
+            }
+
+            int physicsFrame = Time.frameCount;
+            if (physicsFrame == lastPhysicsFrame) return;
+            lastPhysicsFrame = physicsFrame;
+
+            // FixedUpdate is the first place where it is safe to reconcile the
+            // recorded trajectory with the Rigidbody without fighting the input
+            // update itself. Only small errors are corrected; gravity, jumps,
+            // collisions and the game's own velocity remain authoritative.
+            if (playbackFrame <= 0 || playbackFrame > frames.Count) return;
+            int targetIndex = playbackFrame - 1;
+            TASFrame target = frames[targetIndex];
+            ApplyPhysicsTrajectoryCorrection(target);
+        }
+
         private void OnBeforeInputUpdate()
         {
             if (!playing) return;
@@ -136,9 +166,6 @@ namespace UltraTAS
                 }
             }
 
-            // The event queued in onBeforeUpdate has now crossed the Input System
-            // update boundary. Keep the bookkeeping explicit so a press/release
-            // transition is never treated as an OS-style transient click.
             if (playing && playbackInputQueued)
             {
                 playbackInputQueued = false;
@@ -234,6 +261,7 @@ namespace UltraTAS
             playbackFrame = 0;
             lastRecordingUnityFrame = Time.frameCount;
             lastPlaybackUnityFrame = -1;
+            lastPhysicsFrame = -1;
             lastPlaybackSlot = -1;
             playbackInputQueued = false;
             queuedPlaybackFrame = -1;
@@ -263,6 +291,7 @@ namespace UltraTAS
             playbackFrame = 0;
             lastPlaybackUnityFrame = Time.frameCount;
             lastRecordingUnityFrame = -1;
+            lastPhysicsFrame = -1;
             lastPlaybackSlot = -1;
             playbackInputQueued = false;
             queuedPlaybackFrame = -1;
@@ -278,6 +307,7 @@ namespace UltraTAS
             queuedPlaybackFrame = -1;
             ReleaseInjectedInput();
             lastPlaybackSlot = -1;
+            lastPhysicsFrame = -1;
             Logger.LogInfo("TAS playback stopped at frame " + playbackFrame + ".");
         }
 
@@ -292,6 +322,7 @@ namespace UltraTAS
             lastPlaybackUnityFrame = -1;
             lastRecordingUnityFrame = -1;
             lastPlaybackSlot = -1;
+            lastPhysicsFrame = -1;
             playbackInputQueued = false;
             queuedPlaybackFrame = -1;
             Logger.LogInfo("TAS recording cleared.");
@@ -323,7 +354,7 @@ namespace UltraTAS
 
         private Vector3 GetPlayerVelocity() => playerBody != null ? playerBody.velocity : Vector3.zero;
 
-        private void ApplyTrajectoryCorrection(TASFrame frame)
+        private void ApplyPhysicsTrajectoryCorrection(TASFrame frame)
         {
             if (newMovement == null || playerBody == null || playerTransform == null) ResolvePlayerPhysics();
             if (playerBody == null || playerTransform == null) return;
@@ -332,19 +363,22 @@ namespace UltraTAS
             float distance = error.magnitude;
             if (distance <= PositionTolerance) return;
 
-            float strength = distance >= HardCorrectionDistance
-                ? HardCorrectionStrength
-                : SoftCorrectionStrength + (HardCorrectionStrength - SoftCorrectionStrength) *
-                  Mathf.InverseLerp(SoftCorrectionDistance, HardCorrectionDistance, distance);
+            // Do not teleport or directly overwrite the full velocity. A small
+            // positional correction is applied only after the physics tick so the
+            // next simulation starts close to the recorded trajectory without
+            // producing the old airborne/flying effect.
+            Vector3 correction = error * PositionCorrectionGain;
+            if (correction.magnitude > MaxPhysicsCorrection)
+                correction = correction.normalized * MaxPhysicsCorrection;
 
-            Vector3 correction = error * strength;
-            if (correction.magnitude > MaxPositionCorrectionPerFrame)
-                correction = correction.normalized * MaxPositionCorrectionPerFrame;
             playerBody.position += correction;
 
-            Vector3 velocityCorrection = (frame.Velocity - playerBody.velocity) * VelocityCorrectionStrength;
-            if (velocityCorrection.magnitude > MaxVelocityCorrection)
-                velocityCorrection = velocityCorrection.normalized * MaxVelocityCorrection;
+            Vector3 velocityCorrection = (frame.Velocity - playerBody.velocity) * VelocityCorrectionGain;
+            if (velocityCorrection.magnitude > MaxPhysicsVelocityCorrection)
+                velocityCorrection = velocityCorrection.normalized * MaxPhysicsVelocityCorrection;
+
+            // Only gently steer velocity toward the recorded trajectory. The game
+            // remains responsible for gravity, collision response and impulses.
             playerBody.velocity += velocityCorrection;
         }
 
@@ -368,11 +402,6 @@ namespace UltraTAS
                 return;
             }
             TASFrame frame = frames[playbackFrame];
-            ApplyTrajectoryCorrection(frame);
-
-            // Queue exactly one complete device state for this TAS frame. The
-            // press/release state is never delayed or stretched; it simply crosses
-            // the same Input System update boundary as real input.
             QueueKeyboardFrame(frame);
             QueueMouseFrame(frame);
             playbackInputQueued = true;
