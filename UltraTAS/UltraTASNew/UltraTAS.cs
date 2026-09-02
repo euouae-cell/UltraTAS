@@ -11,16 +11,13 @@ using System.IO;
 
 namespace UltraTAS
 {
-    [BepInPlugin("ti0z1.UltraTAS", "UltraTAS", "1.3.1")]
+    [BepInPlugin("ti0z1.UltraTAS", "UltraTAS", "1.3.2")]
     public class UltraTAS : BaseUnityPlugin
     {
         private sealed class TASFrame
         {
-            public Vector2 Move;
-            public Vector2 Look;
-            public Vector2 WheelLook;
-            public Vector3 Position;
-            public Vector3 Velocity;
+            public Vector2 Move, Look, WheelLook;
+            public Vector3 Position, Velocity;
             public bool Punch, Hook, Fire1, Fire2, Jump, Slide, Dodge, ChangeFist;
             public bool NextVariation, PreviousVariation, NextWeapon, PrevWeapon, LastWeapon;
             public bool SelectVariant1, SelectVariant2, SelectVariant3, Pause, Stats;
@@ -29,26 +26,21 @@ namespace UltraTAS
 
         private static readonly string[] PlayerInputActions =
         {
-            "Move", "Look", "WheelLook", "Punch", "Hook", "Fire1", "Fire2",
-            "Jump", "Slide", "Dodge", "ChangeFist", "NextVariation", "PreviousVariation",
-            "NextWeapon", "PrevWeapon", "LastWeapon", "SelectVariant1", "SelectVariant2",
-            "SelectVariant3", "Pause", "Stats", "Slot1", "Slot2", "Slot3", "Slot4", "Slot5", "Slot6"
+            "Move", "Look", "WheelLook", "Punch", "Hook", "Fire1", "Fire2", "Jump", "Slide", "Dodge",
+            "ChangeFist", "NextVariation", "PreviousVariation", "NextWeapon", "PrevWeapon", "LastWeapon",
+            "SelectVariant1", "SelectVariant2", "SelectVariant3", "Pause", "Stats", "Slot1", "Slot2", "Slot3", "Slot4", "Slot5", "Slot6"
         };
 
         private readonly List<TASFrame> frames = new List<TASFrame>();
         private readonly Dictionary<string, InputAction> resolvedActions = new Dictionary<string, InputAction>();
-
         private Harmony? harmony;
         private global::PlayerInput? playerInput;
         private global::NewMovement? newMovement;
         private Transform? playerTransform;
         private Rigidbody? playerBody;
-        private bool recording;
-        private bool playing;
-        private int playbackFrame;
-        private int tasSeed;
-        private int lastPlaybackUnityFrame = -1;
-        private int lastRecordingUnityFrame = -1;
+        private bool recording, playing;
+        private int playbackFrame, tasSeed;
+        private int lastPlaybackUnityFrame = -1, lastRecordingUnityFrame = -1;
         private string tasPath = string.Empty;
         private int lastPlaybackSlot = -1;
 
@@ -72,18 +64,8 @@ namespace UltraTAS
             harmony.PatchAll();
             InputSystem.onBeforeUpdate += OnBeforeInputUpdate;
             InputSystem.onAfterUpdate += OnAfterInputUpdate;
-
-            Logger.LogInfo("========================================");
-            Logger.LogInfo("UltraTAS 1.3.1 loaded.");
-            Logger.LogInfo("Using ULTRAKILL's native PlayerInput.");
-            Logger.LogInfo("Using NewMovement.rb for trajectory synchronization.");
-            Logger.LogInfo("Unity frame synchronized TAS playback enabled.");
-            Logger.LogInfo("Deterministic Unity RNG seed support enabled.");
-            Logger.LogInfo("Smooth recorded-position movement synchronization enabled.");
-            Logger.LogInfo("F6 = start/stop recording");
-            Logger.LogInfo("F7 = playback");
-            Logger.LogInfo("F8 = clear");
-            Logger.LogInfo("========================================");
+            Logger.LogInfo("UltraTAS 1.3.2 loaded. NewMovement trajectory synchronization enabled.");
+            Logger.LogInfo("F6 = start/stop recording | F7 = playback | F8 = clear");
         }
 
         private void OnDestroy()
@@ -100,10 +82,7 @@ namespace UltraTAS
         [HarmonyPatch(MethodType.Constructor)]
         private static class PlayerInputConstructorPatch
         {
-            private static void Postfix(global::PlayerInput __instance)
-            {
-                Instance?.SetPlayerInput(__instance);
-            }
+            private static void Postfix(global::PlayerInput __instance) => Instance?.SetPlayerInput(__instance);
         }
 
         private void SetPlayerInput(global::PlayerInput input)
@@ -118,12 +97,10 @@ namespace UltraTAS
             playerTransform = null;
             playerBody = null;
             newMovement = null;
-
             try
             {
                 newMovement = MonoSingleton<NewMovement>.Instance;
                 if (newMovement == null) return;
-
                 playerBody = newMovement.rb;
                 playerTransform = newMovement.transform;
             }
@@ -169,11 +146,13 @@ namespace UltraTAS
             if (!recording && !playing) return;
             if (tasStyle == null)
             {
-                tasStyle = new GUIStyle(GUI.skin.label);
-                tasStyle.fontSize = 24;
-                tasStyle.fontStyle = FontStyle.Bold;
+                tasStyle = new GUIStyle(GUI.skin.label)
+                {
+                    fontSize = 24,
+                    fontStyle = FontStyle.Bold,
+                    alignment = TextAnchor.UpperLeft
+                };
                 tasStyle.normal.textColor = new Color(1f, 1f, 1f, 0.75f);
-                tasStyle.alignment = TextAnchor.UpperLeft;
             }
             GUI.Label(new Rect(15f, 15f, 100f, 40f), "TAS", tasStyle);
         }
@@ -195,7 +174,7 @@ namespace UltraTAS
             AddAction("NextVariation", playerInput.Actions.Weapon.NextVariation);
             AddAction("PreviousVariation", playerInput.Actions.Weapon.PreviousVariation);
             AddAction("NextWeapon", playerInput.Actions.Weapon.NextWeapon);
-            AddAction("PrevWeapon", playerInput.Actions.Weapon.PrevWeapon);
+            AddAction("PrevWeapon", playerInput.Actions.Weapon.PreviousWeapon);
             AddAction("LastWeapon", playerInput.Actions.Weapon.LastUsedWeapon);
             AddAction("Slot1", playerInput.Actions.Weapon.Revolver);
             AddAction("Slot2", playerInput.Actions.Weapon.Shotgun);
@@ -241,18 +220,14 @@ namespace UltraTAS
             tasSeed = Environment.TickCount;
             UnityEngine.Random.InitState(tasSeed);
             recording = true;
-            Logger.LogInfo("TAS recording started.");
-            Logger.LogInfo("TAS RNG seed: " + tasSeed);
-            Logger.LogInfo("Movement trajectory recording enabled.");
+            Logger.LogInfo("TAS recording started. Seed: " + tasSeed);
         }
 
         private void StopRecording()
         {
             recording = false;
             SaveRecording();
-            Logger.LogInfo("TAS recording stopped.");
-            Logger.LogInfo("Frames: " + frames.Count);
-            Logger.LogInfo("TAS RNG seed: " + tasSeed);
+            Logger.LogInfo("TAS recording stopped. Frames: " + frames.Count);
         }
 
         private void StartPlayback()
@@ -270,10 +245,7 @@ namespace UltraTAS
             lastRecordingUnityFrame = -1;
             lastPlaybackSlot = -1;
             playing = true;
-            Logger.LogInfo("TAS playback started.");
-            Logger.LogInfo("Frames: " + frames.Count);
-            Logger.LogInfo("Restored TAS RNG seed: " + tasSeed);
-            Logger.LogInfo("Position/velocity trajectory correction enabled.");
+            Logger.LogInfo("TAS playback started. Frames: " + frames.Count + ", Seed: " + tasSeed);
         }
 
         private void StopPlayback()
@@ -302,7 +274,7 @@ namespace UltraTAS
         private void RecordFrame()
         {
             if (resolvedActions.Count == 0) return;
-            TASFrame frame = new TASFrame
+            frames.Add(new TASFrame
             {
                 Move = ReadVector2("Move"), Look = ReadVector2("Look"), WheelLook = ReadVector2("WheelLook"),
                 Position = GetPlayerPosition(), Velocity = GetPlayerVelocity(),
@@ -313,8 +285,7 @@ namespace UltraTAS
                 SelectVariant1 = ReadButton("SelectVariant1"), SelectVariant2 = ReadButton("SelectVariant2"), SelectVariant3 = ReadButton("SelectVariant3"),
                 Pause = ReadButton("Pause"), Stats = ReadButton("Stats"), Slot1 = ReadButton("Slot1"), Slot2 = ReadButton("Slot2"),
                 Slot3 = ReadButton("Slot3"), Slot4 = ReadButton("Slot4"), Slot5 = ReadButton("Slot5"), Slot6 = ReadButton("Slot6")
-            };
-            frames.Add(frame);
+            });
         }
 
         private Vector3 GetPlayerPosition()
@@ -324,16 +295,11 @@ namespace UltraTAS
             return Vector3.zero;
         }
 
-        private Vector3 GetPlayerVelocity()
-        {
-            if (playerBody != null) return playerBody.velocity;
-            return Vector3.zero;
-        }
+        private Vector3 GetPlayerVelocity() => playerBody != null ? playerBody.velocity : Vector3.zero;
 
         private void ApplyTrajectoryCorrection(TASFrame frame)
         {
-            if (newMovement == null || playerBody == null || playerTransform == null)
-                ResolvePlayerPhysics();
+            if (newMovement == null || playerBody == null || playerTransform == null) ResolvePlayerPhysics();
             if (playerBody == null || playerTransform == null) return;
 
             Vector3 error = frame.Position - playerBody.position;
@@ -348,7 +314,6 @@ namespace UltraTAS
             Vector3 correction = error * strength;
             if (correction.magnitude > MaxPositionCorrectionPerFrame)
                 correction = correction.normalized * MaxPositionCorrectionPerFrame;
-
             playerBody.position += correction;
 
             Vector3 velocityCorrection = (frame.Velocity - playerBody.velocity) * VelocityCorrectionStrength;
@@ -508,10 +473,7 @@ namespace UltraTAS
             }
         }
 
-        private static bool BelongsToDevice(InputControl control, InputDevice device)
-        {
-            return ReferenceEquals(control.device, device);
-        }
+        private static bool BelongsToDevice(InputControl control, InputDevice device) => ReferenceEquals(control.device, device);
 
         private static void WriteControlValue(InputControl control, float value, InputEventPtr eventPtr)
         {
@@ -540,13 +502,10 @@ namespace UltraTAS
                             F(frame.Look.x) + "," + F(frame.Look.y) + "," +
                             F(frame.WheelLook.x) + "," + F(frame.WheelLook.y) + "," +
                             F(frame.Position.x) + "," + F(frame.Position.y) + "," + F(frame.Position.z) + "," +
-                            F(frame.Velocity.x) + "," + F(frame.Velocity.y) + "," + F(frame.Velocity.z) + "," +
-                            Bits(frame));
+                            F(frame.Velocity.x) + "," + F(frame.Velocity.y) + "," + F(frame.Velocity.z) + "," + Bits(frame));
                     }
                 }
-                Logger.LogInfo("UltraTAS: saved TAS v7 with movement trajectory.");
-                Logger.LogInfo("Seed: " + tasSeed);
-                Logger.LogInfo("Frames: " + frames.Count);
+                Logger.LogInfo("UltraTAS: saved TAS v7 with movement trajectory. Frames: " + frames.Count);
             }
             catch (Exception ex)
             {
